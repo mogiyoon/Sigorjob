@@ -189,6 +189,14 @@ To additionally produce a macOS DMG:
 
 Before using remote tunnel features in source-based environments, make sure `cloudflared` is installed on the host machine or exposed via `CLOUDFLARED_PATH`.
 
+## Git Workflow
+
+- Create short-lived feature branches from `dev`
+- Open pull requests from `feature -> dev`
+- Promote tested changes with pull requests from `dev -> main`
+- Prefer `rebase merge` for branch history hygiene
+- Avoid `squash merge` when you want branch graphs to stay easy to read
+
 ## Security Notes
 
 - Local-only setup and pairing routes are blocked from remote access
