@@ -1,0 +1,12 @@
+{
+  "name": "calendar_helper",
+  "description": "Create calendar event links from natural-language schedule requests.",
+  "permissions": [
+    {
+      "id": "calendar_event_creation",
+      "title": "캘린더 일정 생성",
+      "description": "캘린더 서비스에 일정 생성 링크를 엽니다.",
+      "required_for": ["calendar_helper"]
+    }
+  ]
+}

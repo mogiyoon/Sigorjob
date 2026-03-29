@@ -1,0 +1,12 @@
+{
+  "name": "route_helper",
+  "description": "Open map directions for navigation requests.",
+  "permissions": [
+    {
+      "id": "route_open_links",
+      "title": "길찾기 링크 열기",
+      "description": "지도 서비스의 길찾기 링크를 엽니다.",
+      "required_for": ["route_helper"]
+    }
+  ]
+}

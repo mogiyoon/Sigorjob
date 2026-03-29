@@ -1,0 +1,6 @@
+rules:
+  - name: delivery_helper_delivery
+    pattern: "(.+?)\\s*(배달해줘|배달해 줘|배달시켜줘|배달 시켜줘|배달 주문해줘|배달 주문해 줘)"
+    tool: "delivery_helper"
+    params:
+      query: "{match_1}"

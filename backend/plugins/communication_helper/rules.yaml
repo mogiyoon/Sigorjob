@@ -1,0 +1,15 @@
+rules:
+  - name: communication_phone_call
+    pattern: "(.+?)\\s*(전화해줘|전화 걸어줘|전화해 줄래|전화 걸어 줄래)"
+    tool: "communication_helper"
+    params:
+      text: "{match_1}"
+      mode: "call"
+
+  - name: communication_sms
+    pattern: "(.+?)\\s*(문자 보내줘|문자 보내 줄래|문자해줘|메시지 보내줘)\\s*[:：]?\\s*(.*)"
+    tool: "communication_helper"
+    params:
+      text: "{match_1}"
+      mode: "sms"
+      content: "{match_3}"

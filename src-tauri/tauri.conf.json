@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Sigorjob",
+  "version": "0.1.0",
+  "identifier": "com.sigorjob.desktop",
+  "build": {
+    "frontendDist": "../frontend/out",
+    "devUrl": "http://localhost:3001",
+    "beforeDevCommand": "cd ../frontend && npm run dev -- -p 3001",
+    "beforeBuildCommand": "cd ../frontend && npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Sigorjob",
+        "width": 1024,
+        "height": 768,
+        "minWidth": 600,
+        "minHeight": 500,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "externalBin": [
+      "binaries/backend",
+      "binaries/cloudflared"
+    ],
+    "resources": []
+  }
+}

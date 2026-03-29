@@ -1,0 +1,19 @@
+rules:
+  - name: translate_to_english
+    pattern: "(.+?)\\s*(영어로 번역해줘|영어로 번역해 줘|영어로 번역해줄래|영어로 번역해 줄래)"
+    tool: "translation_helper"
+    params:
+      text: "{match_1}"
+      target_lang: "en"
+  - name: translate_to_korean
+    pattern: "(.+?)\\s*(한국어로 번역해줘|한글로 번역해줘|한국어로 번역해 줘|한글로 번역해 줘)"
+    tool: "translation_helper"
+    params:
+      text: "{match_1}"
+      target_lang: "ko"
+  - name: translate_generic
+    pattern: "(.+?)\\s*(번역해줘|번역해 줘|번역해줄래|번역해 줄래)"
+    tool: "translation_helper"
+    params:
+      text: "{match_1}"
+      target_lang: "en"

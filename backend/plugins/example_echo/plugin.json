@@ -1,0 +1,4 @@
+{
+  "name": "example_echo",
+  "description": "Example plugin showing custom non-AI rules, tool registration, and AI guidance."
+}

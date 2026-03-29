@@ -1,0 +1,13 @@
+{
+  "name": "shopping_helper",
+  "description": "Helpful shopping and purchase-assist flow for product discovery and checkout-ready pages.",
+  "permissions": [
+    {
+      "id": "shopping_checkout_assist",
+      "title": "쇼핑 구매 보조",
+      "description": "최저가 상품 페이지와 구매 진행용 링크를 엽니다. 결제 전 확인이 필요한 민감 기능입니다.",
+      "required_for": ["shopping_helper", "purchase_assist"],
+      "risk": "high"
+    }
+  ]
+}

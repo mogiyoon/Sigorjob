@@ -1,0 +1,12 @@
+{
+  "name": "delivery_helper",
+  "description": "Helpful non-AI fallback for delivery-oriented requests.",
+  "permissions": [
+    {
+      "id": "delivery_open_links",
+      "title": "배달 링크 열기",
+      "description": "배달이나 주문을 위해 외부 서비스 링크를 엽니다.",
+      "required_for": ["delivery_helper"]
+    }
+  ]
+}

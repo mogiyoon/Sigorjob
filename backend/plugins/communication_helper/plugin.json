@@ -1,0 +1,12 @@
+{
+  "name": "communication_helper",
+  "description": "Handle phone call, SMS, and quick communication requests.",
+  "permissions": [
+    {
+      "id": "communication_links",
+      "title": "전화/문자 링크 열기",
+      "description": "전화 앱이나 문자 앱을 여는 링크를 준비합니다.",
+      "required_for": ["communication_helper"]
+    }
+  ]
+}

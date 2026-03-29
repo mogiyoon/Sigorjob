@@ -1,0 +1,14 @@
+rules:
+  - name: reservation_helper_reserve
+    pattern: "(.+?)\\s*(예약해줘|예약해 줘|예약해줄래|예약해 줄래|예약해)"
+    tool: "reservation_helper"
+    params:
+      query: "{match_1}"
+      mode: "reservation"
+
+  - name: reservation_helper_ticket
+    pattern: "(.+?)\\s*(예매해줘|예매해 줘|예매해줄래|예매해 줄래|예매해)"
+    tool: "reservation_helper"
+    params:
+      query: "{match_1}"
+      mode: "ticket"

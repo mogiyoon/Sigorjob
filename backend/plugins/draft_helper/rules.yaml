@@ -1,0 +1,16 @@
+rules:
+  - name: draft_helper_message
+    pattern: "(.+?)에게\\s*메시지 초안\\s*(?:써줘|써 줘|작성해줘|작성해 줘)\\s*[:：]?\\s*(.+)"
+    tool: "draft_helper"
+    params:
+      recipient: "{match_1}"
+      draft_type: "message"
+      content: "{match_2}"
+
+  - name: draft_helper_email
+    pattern: "(.+?)에게\\s*(?:이메일|메일) 초안\\s*(?:써줘|써 줘|작성해줘|작성해 줘)\\s*[:：]?\\s*(.+)"
+    tool: "draft_helper"
+    params:
+      recipient: "{match_1}"
+      draft_type: "email"
+      content: "{match_2}"

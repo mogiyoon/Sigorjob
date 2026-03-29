@@ -1,0 +1,6 @@
+rules:
+  - name: weather_alert_schedule_request
+    pattern: "(.+?)\\s*(날씨 알림 보내줘|날씨 알림 해줘|날씨 알려줘|날씨 체크해줘)"
+    tool: "weather_alert_helper"
+    params:
+      text: "{match_1} {match_2}"

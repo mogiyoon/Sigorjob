@@ -1,0 +1,12 @@
+{
+  "name": "weather_alert_helper",
+  "description": "Register daily weather-check schedules based on Korean natural-language requests.",
+  "permissions": [
+    {
+      "id": "weather_alert_schedule",
+      "title": "날씨 알림 스케줄 생성",
+      "description": "기상청 기준 날씨 확인 작업을 반복 스케줄로 등록합니다.",
+      "required_for": ["weather_alert_helper"]
+    }
+  ]
+}

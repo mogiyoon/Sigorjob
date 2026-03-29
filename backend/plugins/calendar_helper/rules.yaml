@@ -1,0 +1,6 @@
+rules:
+  - name: calendar_helper_add_event
+    pattern: "(.+?)\\s*(캘린더에 일정 추가해줘|캘린더에 일정 넣어줘|일정 추가해줘|일정 넣어줘)"
+    tool: "calendar_helper"
+    params:
+      text: "{match_1}"

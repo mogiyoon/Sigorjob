@@ -1,0 +1,6 @@
+rules:
+  - name: example_echo
+    pattern: "echo plugin (.+)"
+    tool: "example_echo"
+    params:
+      text: "{match_1}"

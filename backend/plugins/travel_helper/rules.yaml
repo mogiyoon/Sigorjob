@@ -1,0 +1,28 @@
+rules:
+  - name: travel_helper_flights
+    pattern: "(.+?)\\s*(항공권 찾아줘|항공권 검색해줘|비행기표 찾아줘|비행기표 검색해줘)"
+    tool: "travel_helper"
+    params:
+      query: "{match_1}"
+      mode: "flight"
+
+  - name: travel_helper_train
+    pattern: "(.+?)\\s*(ktx 예매해줘|기차표 예매해줘|기차 예약해줘)"
+    tool: "travel_helper"
+    params:
+      query: "{match_1}"
+      mode: "train"
+
+  - name: travel_helper_bus
+    pattern: "(.+?)\\s*(버스표 예매해줘|버스 예약해줘|고속버스 예매해줘)"
+    tool: "travel_helper"
+    params:
+      query: "{match_1}"
+      mode: "bus"
+
+  - name: travel_helper_hotel
+    pattern: "(.+?)\\s*(호텔 찾아줘|숙소 찾아줘|숙소 검색해줘)"
+    tool: "travel_helper"
+    params:
+      query: "{match_1}"
+      mode: "hotel"

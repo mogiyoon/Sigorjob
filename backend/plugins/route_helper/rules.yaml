@@ -1,0 +1,6 @@
+rules:
+  - name: route_helper_directions
+    pattern: "(.+?)\\s*(길찾아줘|길 찾아줘|길 안내해줘|경로 알려줘|가는 길 알려줘)"
+    tool: "route_helper"
+    params:
+      text: "{match_1}"

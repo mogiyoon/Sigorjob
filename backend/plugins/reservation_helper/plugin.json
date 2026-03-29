@@ -1,0 +1,12 @@
+{
+  "name": "reservation_helper",
+  "description": "Helpful non-AI fallback for booking, reservation, and ticketing requests.",
+  "permissions": [
+    {
+      "id": "reservation_open_links",
+      "title": "예약 링크 열기",
+      "description": "예약이나 예매를 위해 외부 서비스 링크를 엽니다.",
+      "required_for": ["reservation_helper"]
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+# Intent Rules
+# pattern: 정규식 (대소문자 무시)
+# tool: 사용할 Tool 이름
+# params_template: 파라미터 템플릿 (캡처 그룹 사용 가능)
+
+rules:
+  - name: file_read
+    pattern: "(.+) 파일 읽어|read file (.+)|파일 읽기 (.+)"
+    tool: file
+    params:
+      operation: read
+      path: "{match_1}"
+
+  - name: file_write
+    pattern: "(.+) 파일에 (.+) 써줘|write (.+) to (.+)"
+    tool: file
+    params:
+      operation: write
+      path: "{match_1}"
+      content: "{match_2}"
+
+  - name: shell_ls
+    pattern: "^ls$|현재 폴더 목록|파일 목록 보여줘"
+    tool: shell
+    params:
+      command: "ls"
+
+  - name: shell_pwd
+    pattern: "^pwd$|현재 경로|현재 위치"
+    tool: shell
+    params:
+      command: "pwd"
+
+  - name: crawl_url
+    pattern: "(https?://\\S+).*(크롤링|읽어|가져와|수집|fetch|scrape)|(크롤링|읽어|가져와|수집|fetch|scrape).*(https?://\\S+)"
+    tool: crawler
+    params:
+      url: "{match_1}"
+
+  - name: current_time
+    pattern: "지금 몇 시|현재 시간|what time is it|current time"
+    tool: time
+    params: {}
+
+  - name: system_info
+    pattern: "시스템 정보|system info|현재 시스템"
+    tool: system_info
+    params: {}

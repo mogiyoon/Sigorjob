@@ -1,0 +1,12 @@
+{
+  "name": "travel_helper",
+  "description": "Prepare travel booking and discovery links for flights, trains, buses, and hotels.",
+  "permissions": [
+    {
+      "id": "travel_open_links",
+      "title": "여행 링크 열기",
+      "description": "항공, 기차, 버스, 숙소 관련 링크를 엽니다.",
+      "required_for": ["travel_helper"]
+    }
+  ]
+}

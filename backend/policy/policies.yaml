@@ -1,0 +1,46 @@
+# Policy Rules
+# risk_level: low / medium / high
+# action: allow / block / require_approval
+
+shell:
+  blocked_commands:
+    - rm
+    - rmdir
+    - dd
+    - mkfs
+    - shutdown
+    - reboot
+    - kill
+    - pkill
+    - chmod
+    - chown
+    - sudo
+    - su
+  blocked_patterns:
+    - "rm -rf"
+    - "> /dev/"
+    - "\\| bash"
+    - "\\| sh"
+    - "curl.*\\| sh"
+    - "wget.*\\| sh"
+
+file:
+  blocked_extensions:
+    - .env
+    - .pem
+    - .key
+    - .p12
+  require_approval_paths:
+    - /etc
+    - /usr
+    - /bin
+    - /sbin
+    - /System
+
+risk_levels:
+  shell_execution: medium
+  file_write: medium
+  file_read: low
+  file_delete: high
+  external_message: high
+  install_package: high
