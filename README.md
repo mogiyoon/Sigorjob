@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="./sigorjob.png" alt="Sigorjob" width="160" />
+</p>
+
+<p align="center">
+  <strong>Automation for everyone. AI only when needed.</strong>
+</p>
+
 # Sigorjob
 
 Sigorjob is a local-first automation system that uses the user's PC as the execution hub.
