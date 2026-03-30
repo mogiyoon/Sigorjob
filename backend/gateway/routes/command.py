@@ -52,6 +52,12 @@ async def command(req: CommandRequest):
     task = await intent_router.route(req.text)
 
     if not task.steps:
+        task.status = "failed"
+        task.summary = "실행 가능한 작업을 찾지 못했습니다."
+        task.results = []
+        task.error = task.summary
+        task.completed_at = datetime.now(timezone.utc)
+        await orchestrator.save_pending(task)
         return TaskResponse(
             task_id=task.id,
             command=req.text,
@@ -121,6 +127,12 @@ async def retry_task(task_id: str, session: AsyncSession = Depends(get_session))
     retry_task_plan = await intent_router.route(row.command)
 
     if not retry_task_plan.steps:
+        retry_task_plan.status = "failed"
+        retry_task_plan.summary = "재실행 가능한 작업을 찾지 못했습니다."
+        retry_task_plan.results = []
+        retry_task_plan.error = retry_task_plan.summary
+        retry_task_plan.completed_at = datetime.now(timezone.utc)
+        await orchestrator.save_pending(retry_task_plan)
         return TaskResponse(
             task_id=retry_task_plan.id,
             command=row.command,

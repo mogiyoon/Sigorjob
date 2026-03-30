@@ -8,6 +8,13 @@ Important runtime note:
 - remote web access and mobile pairing require `cloudflared` on the host machine
 - source-based execution still requires normal development dependencies
 
+Current product direction:
+
+- Sigorjob should behave like a general-purpose AI agent
+- non-AI automation is still the first path whenever possible
+- successful AI flows should gradually move into plugins, rules, or user customization
+- external services such as Gmail, Calendar, and future MCP tools should be managed through one shared connection model
+
 한국어 문서:
 
 - [Architecture](./ko/architecture.md)

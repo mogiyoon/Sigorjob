@@ -39,14 +39,16 @@ export default function TaskCard({
   const { t } = useLanguage();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [aiPlanOpen, setAiPlanOpen] = useState(false);
+
   const statusLabel: Record<TaskResponse["status"], string> = {
-    pending: t("pending", "준비 중"),
-    running: t("running_status", "진행 중"),
-    done: t("done", "끝남"),
-    failed: t("failed", "문제 발생"),
-    approval_required: t("approval_required", "확인 필요"),
-    cancelled: t("cancelled", "중단됨"),
+    pending: t("pending"),
+    running: t("running_status"),
+    done: t("done"),
+    failed: t("failed"),
+    approval_required: t("approval_required"),
+    cancelled: t("cancelled"),
   };
+
   const firstResult = task.result?.results?.[0] as
     | {
         success?: boolean;
@@ -71,12 +73,14 @@ export default function TaskCard({
         error?: string;
       }
     | undefined;
+
   const crawlPreview = firstResult?.data?.text?.slice(0, 280);
   const crawlUrl = firstResult?.data?.url;
   const openActionUrl = firstResult?.data?.action === "open_url" ? firstResult?.data?.url : null;
   const openActionTitle = firstResult?.data?.title || t("open_link");
   const purchaseAssist =
-    firstResult?.data?.action === "open_url" && (firstResult?.data as { purchase_intent?: boolean } | undefined)?.purchase_intent
+    firstResult?.data?.action === "open_url" &&
+    (firstResult?.data as { purchase_intent?: boolean } | undefined)?.purchase_intent
       ? firstResult?.data
       : null;
   const scheduleResult =
@@ -89,7 +93,11 @@ export default function TaskCard({
       : null;
   const searchLinks = firstResult?.data?.links ?? [];
   const errorMessage = firstResult?.error;
-  const aiContinuation = (task.result as { ai_continuation?: { summary?: string; steps?: { tool?: string; description?: string }[] } } | null)?.ai_continuation;
+  const aiContinuation = (
+    task.result as {
+      ai_continuation?: { summary?: string; steps?: { tool?: string; description?: string }[] };
+    } | null
+  )?.ai_continuation;
 
   const finishedAt = task.completed_at || task.created_at;
   const formattedFinishedAt = finishedAt
@@ -101,10 +109,42 @@ export default function TaskCard({
       }).format(new Date(finishedAt))
     : null;
 
+  const actionButtons = (
+    <div className="flex flex-wrap items-center gap-2">
+      {onRetry && (task.status === "failed" || task.status === "cancelled") && (
+        <button
+          onClick={() => onRetry(task.task_id)}
+          disabled={retrying}
+          className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+        >
+          {retrying ? t("running") : t("retry")}
+        </button>
+      )}
+      {!draftResult && onContinueWithAi && task.status !== "pending" && task.status !== "running" && (
+        <button
+          onClick={() => onContinueWithAi(task.task_id)}
+          disabled={continuingWithAi}
+          className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+        >
+          {continuingWithAi ? t("running") : t("continue_with_ai")}
+        </button>
+      )}
+      {onDelete && (
+        <button
+          onClick={() => onDelete(task.task_id)}
+          disabled={deleting}
+          className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {deleting ? t("deleting") : t("delete")}
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div className="border border-gray-200 rounded-lg p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           {selectable && onToggleSelect && (
             <input
               type="checkbox"
@@ -113,41 +153,19 @@ export default function TaskCard({
               className="h-4 w-4 rounded border-gray-300"
             />
           )}
-          <span className="text-xs text-gray-400 font-mono">{task.task_id.slice(0, 8)}...</span>
+          <span className="text-xs font-mono text-gray-400">{task.task_id.slice(0, 8)}...</span>
+          {formattedFinishedAt && <span className="text-xs text-gray-400">{formattedFinishedAt}</span>}
         </div>
-        <div className="flex items-center gap-2">
-          {formattedFinishedAt && (
-            <span className="text-xs text-gray-400">{formattedFinishedAt}</span>
-          )}
-          <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColor[task.status]}`}>
-            {statusLabel[task.status]}
-          </span>
-          {onRetry && (task.status === "failed" || task.status === "cancelled") && (
-            <button
-              onClick={() => onRetry(task.task_id)}
-              disabled={retrying}
-              className="text-xs text-blue-500 hover:text-blue-700 disabled:opacity-50"
-            >
-              {retrying ? t("running") : t("retry", "재실행")}
-            </button>
-          )}
-          {onDelete && (
-            <button
-              onClick={() => onDelete(task.task_id)}
-              disabled={deleting}
-              className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
-            >
-              {deleting ? t("deleting") : t("delete")}
-            </button>
-          )}
-        </div>
+        <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusColor[task.status]}`}>
+          {statusLabel[task.status]}
+        </span>
       </div>
-      {task.command && (
-        <p className="text-sm text-gray-500 break-words">{task.command}</p>
-      )}
-      {task.result?.summary && (
-        <p className="text-sm text-gray-800">{task.result.summary}</p>
-      )}
+
+      <div className="space-y-2">
+        {task.command && <p className="text-sm font-medium text-gray-900 break-words">{task.command}</p>}
+        {task.result?.summary && <p className="text-sm leading-6 text-gray-600">{task.result.summary}</p>}
+      </div>
+
       {crawlUrl && (
         <a
           href={crawlUrl}
@@ -158,26 +176,29 @@ export default function TaskCard({
           {crawlUrl}
         </a>
       )}
+
       {openActionUrl && (
         <a
           href={openActionUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="inline-flex items-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           {openActionTitle}
         </a>
       )}
+
       {purchaseAssist && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1">
-          <p className="text-xs font-medium text-amber-800">구매 도우미 안내</p>
+        <div className="space-y-1 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-xs font-medium text-amber-800">{t("purchase_helper_title")}</p>
           <p className="text-sm text-amber-900 break-words">
-            살 수 있는 상품 페이지까지 연결했습니다. 결제 전에 상품 옵션, 배송비, 로그인 상태를 한 번 더 확인하세요.
+            {t("purchase_helper_desc")}
           </p>
         </div>
       )}
+
       {scheduleResult && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 space-y-2">
+        <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
           <p className="text-xs text-emerald-700">
             {scheduleResult.action === "schedule_created" ? t("schedule_created") : t("schedule_draft")}
           </p>
@@ -185,7 +206,7 @@ export default function TaskCard({
             <p className="text-sm font-medium text-emerald-900 break-words">{scheduleResult.name}</p>
           )}
           {scheduleResult.cron && (
-            <p className="text-xs text-emerald-700 font-mono">{scheduleResult.cron}</p>
+            <p className="text-xs font-mono text-emerald-700">{scheduleResult.cron}</p>
           )}
           {scheduleResult.source_name && scheduleResult.source_url && (
             <a
@@ -202,8 +223,9 @@ export default function TaskCard({
           )}
         </div>
       )}
+
       {draftResult && (
-        <div className="rounded-md border border-violet-200 bg-violet-50 p-3 space-y-2">
+        <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 p-4">
           <p className="text-xs text-violet-700">
             {draftResult.draft_type === "email" ? t("email_draft") : t("message_draft")}
           </p>
@@ -218,58 +240,52 @@ export default function TaskCard({
             </p>
           )}
           {draftResult.body && (
-            <div className="rounded-md bg-white/80 p-3">
+            <div className="rounded-2xl bg-white/80 p-3">
               <p className="mb-1 text-xs text-violet-700">{t("body")}</p>
-              <p className="text-sm text-violet-950 whitespace-pre-wrap break-words">{draftResult.body}</p>
+              <p className="whitespace-pre-wrap break-words text-sm text-violet-950">{draftResult.body}</p>
             </div>
           )}
           {draftResult.ai_enhanced && (
-            <p className="text-xs font-medium text-violet-700">{t("ai_continued", "AI가 내용을 더 자연스럽게 다듬었습니다.")}</p>
+            <p className="text-xs font-medium text-violet-700">
+              {t("ai_continued")}
+            </p>
           )}
           {onContinueWithAi && task.status !== "pending" && task.status !== "running" && (
             <button
               onClick={() => onContinueWithAi(task.task_id)}
               disabled={continuingWithAi}
-              className="rounded-md bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+              className="rounded-full bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
             >
-              {continuingWithAi ? t("running", "진행 중...") : t("continue_with_ai", "AI가 이어서 해주기")}
+              {continuingWithAi ? t("running") : t("continue_with_ai")}
             </button>
           )}
         </div>
       )}
-      {!draftResult && onContinueWithAi && task.status !== "pending" && task.status !== "running" && (
-        <button
-          onClick={() => onContinueWithAi(task.task_id)}
-          disabled={continuingWithAi}
-          className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
-        >
-          {continuingWithAi ? t("running", "진행 중...") : t("continue_with_ai", "AI가 이어서 해주기")}
-        </button>
-      )}
+
       {aiContinuation && (
         <button
           type="button"
           onClick={() => setAiPlanOpen((prev) => !prev)}
-          className="w-full rounded-md border border-violet-200 bg-violet-50 p-3 text-left"
+          className="w-full rounded-2xl border border-violet-200 bg-violet-50 p-4 text-left"
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-medium text-violet-700">{t("ai_continuation_plan", "AI 후속 처리")}</p>
+              <p className="text-xs font-medium text-violet-700">{t("ai_continuation_plan")}</p>
               {aiContinuation.summary && (
                 <p className="mt-1 text-sm text-violet-950 break-words">{aiContinuation.summary}</p>
               )}
             </div>
-            <span className="text-xs text-violet-600">{aiPlanOpen ? t("close", "접기") : t("open", "보기")}</span>
+            <span className="text-xs text-violet-600">{aiPlanOpen ? t("close") : t("open")}</span>
           </div>
           {aiPlanOpen && aiContinuation.steps && aiContinuation.steps.length > 0 && (
             <div className="mt-3 space-y-2">
               {aiContinuation.steps.map((step, index) => (
-                <div key={`${step.tool || "step"}-${index}`} className="rounded-md bg-white/80 p-3">
+                <div key={`${step.tool || "step"}-${index}`} className="rounded-xl bg-white/80 p-3">
                   <p className="text-xs font-medium text-violet-700">
-                    {step.tool || t("step", "단계")} {index + 1}
+                    {step.tool || t("step")} {index + 1}
                   </p>
                   <p className="mt-1 text-sm text-violet-950 break-words">
-                    {step.description || step.tool || t("ai_followup_step", "후속 작업")}
+                    {step.description || step.tool || t("ai_followup_step")}
                   </p>
                 </div>
               ))}
@@ -277,8 +293,9 @@ export default function TaskCard({
           )}
         </button>
       )}
+
       {searchLinks.length > 0 && (
-        <div className="rounded-md border border-blue-100 bg-blue-50 p-3">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-xs text-blue-700">{t("search_results")}</p>
             <span className="text-xs text-blue-500">{searchLinks.length}</span>
@@ -290,7 +307,7 @@ export default function TaskCard({
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block rounded-md bg-white px-3 py-2 hover:bg-blue-100"
+                className="block rounded-xl bg-white px-3 py-3 hover:bg-blue-100"
               >
                 <p className="text-sm font-medium text-blue-900 break-words">
                   {link.title || link.url}
@@ -301,11 +318,12 @@ export default function TaskCard({
           </div>
         </div>
       )}
+
       {crawlPreview && (
         <button
           type="button"
           onClick={() => setPreviewOpen((prev) => !prev)}
-          className="w-full rounded-md border border-gray-200 bg-gray-50 p-3 text-left"
+          className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left"
         >
           <div className="mb-1 flex items-center justify-between gap-3">
             <p className="text-xs text-gray-500">{t("preview")}</p>
@@ -314,14 +332,17 @@ export default function TaskCard({
             </span>
           </div>
           {previewOpen && (
-            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{crawlPreview}</p>
+            <p className="whitespace-pre-wrap break-words text-sm text-gray-700">{crawlPreview}</p>
           )}
         </button>
       )}
+
+      {!draftResult && actionButtons}
+
       {task.status === "failed" && errorMessage && (
-        <div className="rounded-md bg-red-50 border border-red-200 p-3">
-          <p className="text-xs text-red-500 mb-1">{t("failure_reason")}</p>
-          <p className="text-sm text-red-700 whitespace-pre-wrap break-words">{errorMessage}</p>
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+          <p className="mb-1 text-xs text-red-500">{t("failure_reason")}</p>
+          <p className="whitespace-pre-wrap break-words text-sm text-red-700">{errorMessage}</p>
         </div>
       )}
       {task.status === "failed" && !task.result?.summary && !errorMessage && (
