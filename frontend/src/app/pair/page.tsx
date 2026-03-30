@@ -35,7 +35,7 @@ export default function PairPage() {
       const json = (await res.json()) as PairData;
       setData(json);
     } catch {
-      setLoadError("휴대폰 연결 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+      setLoadError(t("pair_load_error", "Could not load phone connection details. Please try again in a moment."));
     } finally {
       setLoading(false);
     }
@@ -128,12 +128,13 @@ export default function PairPage() {
         {data && data.status === "dependency_missing" ? (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
             <p className="text-red-700 text-sm font-medium">
-              휴대폰 연결 준비가 아직 끝나지 않았습니다.
+              {t("remote_component_unavailable")}
             </p>
             <p className="text-red-600 text-sm leading-6">
-              배포된 데스크톱 앱에는 필요한 연결 도구가 보통 자동으로 들어 있습니다.
-              소스에서 직접 실행 중이라면 `cloudflared`를 설치하거나
-              `CLOUDFLARED_PATH`를 지정한 뒤 다시 시도해주세요.
+              {t(
+                "pair_dependency_missing_desc",
+                "Packaged desktop builds usually include the connection tool automatically. If you are running from source, install cloudflared or set CLOUDFLARED_PATH and try again."
+              )}
             </p>
             {data.error && (
               <p className="text-red-500 text-xs">{data.error}</p>

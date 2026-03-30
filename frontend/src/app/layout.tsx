@@ -5,7 +5,7 @@ import { LanguageProvider } from "@/components/LanguageProvider";
 
 export const metadata: Metadata = {
   title: "Sigorjob",
-  description: "Local automation platform",
+  description: "Automation for everyone. AI only when needed.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
