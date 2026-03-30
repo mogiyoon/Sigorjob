@@ -16,9 +16,10 @@ It is designed to behave like a general-purpose AI agent, while minimizing actua
 - The local PC is the execution authority
 - Web, mobile, and CLI are control surfaces
 - Rules-based automation is the default first path
-- If non-AI logic misses, AI should still be able to take over and complete the request
+- If non-AI logic misses, AI should still be able to take over and continue the request
 - Low AI usage is a product differentiator, not just a cost optimization
 - Over time, successful AI flows should be absorbed into non-AI plugins and automations
+- External services should be handled through one shared connection model instead of one-off popups or feature-specific flows
 
 ## Current Status
 
@@ -48,6 +49,7 @@ Implemented today:
 - Tauri desktop shell
 - headless CLI mode
 - Cloudflare Tunnel based remote access
+- shared connection registry groundwork for mobile, AI, Gmail, Calendar, and future MCP tools
 
 Still planned:
 
@@ -195,8 +197,8 @@ Before using remote tunnel features in source-based environments, make sure `clo
 - Create short-lived feature branches from `dev`
 - Open pull requests from `feature -> dev`
 - Promote tested changes with pull requests from `dev -> main`
-- Prefer `rebase merge` for branch history hygiene
-- Avoid `squash merge` when you want branch graphs to stay easy to read
+- Merge manually after review and verification
+- Do not use `rebase merge` or `squash merge` in the normal project workflow
 
 ## Security Notes
 
@@ -240,15 +242,16 @@ This repository keeps docs in both English and Korean.
 ## 한국어 요약
 
 Sigorjob은 사용자의 PC를 실행 허브로 사용하는 로컬 우선 자동화 시스템입니다.
-겉으로는 AI 비서처럼 느껴지지만, 실제로는 가능한 한 규칙 기반 자동화로 먼저 처리하고 꼭 필요한 순간에만 AI를 사용하도록 설계되어 있습니다.
+겉으로는 범용 AI 비서처럼 느껴지지만, 실제로는 가능한 한 규칙 기반 자동화로 먼저 처리하고 꼭 필요한 순간에만 AI를 사용하도록 설계되어 있습니다.
 
 핵심 포인트:
 
 - 로컬 PC가 실제 실행 권한을 가집니다
 - 웹, 모바일, CLI는 제어 화면 역할을 합니다
 - 기본 경로는 비AI 자동화입니다
-- AI는 의도 해석, 계획, 결과 보완 같은 제한된 지점에서만 개입합니다
+- 비AI가 놓치면 AI가 이어서 처리합니다
 - 낮은 AI 사용량 자체가 제품 차별점입니다
+- Gmail, Calendar, MCP 같은 외부 기능은 공통 연결 모델로 확장하는 방향입니다
 
 현재 구현 상태:
 

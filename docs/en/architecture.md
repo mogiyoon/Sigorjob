@@ -14,6 +14,8 @@ Core direction:
 - the local PC is the actual execution authority
 - mobile acts as a thin WebView-based remote control
 - headless servers reuse the same backend through CLI mode
+- if non-AI logic misses, AI should still be able to continue the task instead of falling back to generic search-only behavior
+- external services should be represented through one shared connection and capability model
 
 Practical runtime boundary:
 
@@ -44,6 +46,8 @@ Client (Web / Mobile WebView / CLI)
 Gateway (FastAPI, auth, local-only route guard, static serving)
     ->
 Intent Router (rules first, AI fallback only when needed)
+    ->
+Connection / Capability Registry (mobile, AI, Gmail, Calendar, future MCP tools)
     ->
 Orchestrator (task status, approval-required state, sequential tool execution)
     ->
@@ -137,6 +141,13 @@ Local PC UI
 - AI fallback only when rules fail
 - risk annotation for steps
 
+### Connection / Capability Registry
+
+- tracks core connections such as mobile access and AI access
+- provides a shared home for external services such as Gmail and Google Calendar
+- is intended to become the same integration surface used by future MCP runtimes
+- avoids one-off popup flows for each external feature
+
 ### Orchestrator
 
 - sequential execution
@@ -203,6 +214,13 @@ The following directions are intentionally planned, but not fully implemented in
 
 - stronger token lifecycle management
 - more extensible session and user models
+
+### External connection expansion
+
+- real Gmail send / read integration
+- real calendar event creation through connected providers
+- MCP runtime setup, install, and capability discovery
+- shared approval and permission flows for external actions
 
 ## Technology Stack
 
