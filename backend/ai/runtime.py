@@ -17,3 +17,19 @@ def get_client() -> anthropic.Anthropic | None:
     if not api_key:
         return None
     return anthropic.Anthropic(api_key=api_key)
+
+
+def validate_connection() -> tuple[bool, str | None]:
+    client = get_client()
+    if client is None:
+        return False, "API key is not configured."
+
+    try:
+        client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+        return True, None
+    except Exception as exc:
+        return False, str(exc)

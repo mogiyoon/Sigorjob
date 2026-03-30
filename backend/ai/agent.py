@@ -2,6 +2,7 @@ import json
 from ai.runtime import get_client, has_api_key
 from plugins import get_ai_instructions
 from logger.logger import get_logger
+from tools.registry import list_tools
 
 logger = get_logger(__name__)
 
@@ -9,15 +10,7 @@ SYSTEM_PROMPT = """
 You are an automation orchestration assistant.
 Given a user's natural language command, your job is to produce an execution plan.
 
-Available tools:
-- file: read/write/copy/move local files
-  params: {operation: read|write|copy|move, path, content (write only), src/dst (copy/move)}
-- shell: execute an allowed shell command
-  params: {command: string}
-- crawler: crawl a URL and extract text
-  params: {url: string, selector: string (optional)}
-- browser: prepare a web URL for opening in the client UI
-  params: {url: string, title: string (optional)}
+Available tools will be listed below.
 
 Respond ONLY with a JSON object in this exact format:
 {
@@ -36,6 +29,9 @@ Rules:
 - Do not include steps that are not needed.
 - Never suggest shell commands that could be dangerous.
 - Prefer a useful fallback over an empty plan.
+- Prefer purpose-built helper tools over generic browser search when a helper can safely handle the request.
+- For reminders, schedules, alerts, recurring summaries, or routine notifications, prefer a schedule/reminder helper instead of browser search.
+- For time-based automation, recurring work, weather alerts, or calendar creation, avoid generic search if any helper tool can take the request.
 - If the user asks for shopping, ordering, booking, or sign-up, and full completion is not possible with available tools, open the most relevant search or destination page instead of returning no steps.
 - For search-like or research-like requests, opening a relevant search page or collecting links is better than returning no steps.
 - Return steps as [] only if there is truly no safe and useful action you can take.
@@ -64,6 +60,76 @@ Rules:
 - If nothing useful can be inferred, return {"intent_type":"none","platform":"","query":"","prefer_lowest_price":false}
 """
 
+AUTOMATION_ASSIST_PROMPT = """
+You are a fallback intent router for a desktop automation assistant.
+The main planner could not produce a reliable plan.
+Choose the safest non-browser automation helper that best fits the request.
+
+Return ONLY a JSON object in this format:
+{
+  "tool": "reminder_helper|weather_alert_helper|calendar_helper|shopping_helper|none",
+  "text": "cleaned natural-language payload for the helper tool",
+  "description": "short description"
+}
+
+Rules:
+- Use reminder_helper for time-based reminders, summaries, alerts, or daily routine notifications.
+- Use weather_alert_helper for recurring weather update requests.
+- Use calendar_helper for calendar event creation requests.
+- Use shopping_helper for shopping/purchase-assist requests that should stay inside Sigorjob tools.
+- Prefer a useful helper tool over returning none.
+- Return none only if no safe helper applies.
+"""
+
+DRAFT_CONTINUATION_PROMPT = """
+You are helping finish a draft for a desktop automation assistant.
+The assistant already produced a safe non-AI draft or opened the compose flow.
+Your job is to improve the remaining draft work, not to change the core intent.
+
+Return ONLY a JSON object in this exact format:
+{
+  "subject": "string",
+  "body": "string"
+}
+
+Rules:
+- Preserve the original language unless the user clearly asked for another language.
+- Keep the recipient unchanged.
+- If subject is not needed (for example plain message draft), return an empty string or keep the existing one.
+- Make the body natural, useful, and ready to send.
+- Do not invent facts that are not implied by the user command or the existing draft.
+"""
+
+TASK_CONTINUATION_PROMPT = """
+You are continuing an in-progress automation task for a desktop agent.
+The original non-AI flow already produced some results, but the user wants the AI to keep going.
+
+You will receive:
+- the original command
+- the current task result
+- the available tools
+
+Return ONLY a JSON object in this exact format:
+{
+  "intent": "short summary",
+  "summary": "what the AI continuation is trying to achieve",
+  "steps": [
+    {
+      "tool": "tool_name",
+      "params": { },
+      "description": "what this step does"
+    }
+  ]
+}
+
+Rules:
+- Prefer purpose-built helper tools over generic browser search when possible.
+- Use browser only when it is genuinely the best next action.
+- If the current result is already sufficient and no extra execution is needed, return an empty steps array and provide a useful summary.
+- For mail, message, schedule, shopping, reservation, calendar, route, or reminder flows, continue from the current result instead of restarting from scratch.
+- Never invent unsupported tools.
+"""
+
 
 async def plan(command: str) -> dict:
     """사용자 명령을 받아 실행 계획 반환."""
@@ -74,9 +140,11 @@ async def plan(command: str) -> dict:
         return {"intent": command, "steps": []}
     try:
         plugin_instructions = get_ai_instructions()
-        system_prompt = SYSTEM_PROMPT
+        tools_prompt = _build_tools_prompt()
+        system_prompt = f"{SYSTEM_PROMPT}\n\nAvailable tools:\n{tools_prompt}"
         if plugin_instructions:
             system_prompt = f"{SYSTEM_PROMPT}\n\nPlugin-specific guidance:\n{plugin_instructions}"
+            system_prompt = f"{system_prompt}\n\nAvailable tools:\n{tools_prompt}"
         message = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
@@ -118,3 +186,104 @@ async def browser_assist(command: str) -> dict | None:
     except Exception as e:
         logger.error(f"AI browser assist failed: {e}")
         return None
+
+
+async def automation_assist(command: str) -> dict | None:
+    client = get_client()
+    if not has_api_key() or client is None:
+        return None
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            system=AUTOMATION_ASSIST_PROMPT,
+            messages=[{"role": "user", "content": command}],
+        )
+        text = message.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        data = json.loads(text)
+        if str(data.get("tool") or "") == "none":
+            return None
+        return data
+    except Exception as e:
+        logger.error(f"AI automation assist failed: {e}")
+        return None
+
+
+async def continue_draft(command: str, draft: dict) -> dict | None:
+    client = get_client()
+    if not has_api_key() or client is None:
+        return None
+    try:
+        payload = {
+            "command": command,
+            "draft_type": draft.get("draft_type"),
+            "recipient": draft.get("recipient"),
+            "subject": draft.get("subject", ""),
+            "body": draft.get("body", ""),
+        }
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=512,
+            system=DRAFT_CONTINUATION_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        )
+        text = message.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        data = json.loads(text)
+        return {
+            "subject": str(data.get("subject", draft.get("subject", "")) or ""),
+            "body": str(data.get("body", draft.get("body", "")) or ""),
+        }
+    except Exception as e:
+        logger.error(f"AI draft continuation failed: {e}")
+        return None
+
+
+async def continue_task(command: str, current_result: dict) -> dict | None:
+    client = get_client()
+    if not has_api_key() or client is None:
+        return None
+    try:
+        tools_prompt = _build_tools_prompt()
+        system_prompt = f"{TASK_CONTINUATION_PROMPT}\n\nAvailable tools:\n{tools_prompt}"
+        payload = {
+            "command": command,
+            "current_result": current_result,
+        }
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        )
+        text = message.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        data = json.loads(text)
+        steps = data.get("steps", [])
+        if not isinstance(steps, list):
+            steps = []
+        return {
+            "intent": str(data.get("intent", command) or command),
+            "summary": str(data.get("summary", "") or ""),
+            "steps": steps,
+        }
+    except Exception as e:
+        logger.error(f"AI task continuation failed: {e}")
+        return None
+
+
+def _build_tools_prompt() -> str:
+    tools = list_tools()
+    if not tools:
+        return "- browser: prepare a web URL for opening in the client UI"
+    return "\n".join(f"- {tool['name']}: {tool['description']}" for tool in tools)

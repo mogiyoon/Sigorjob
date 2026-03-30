@@ -342,11 +342,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if (args.subcommand or "serve") == "serve":
         import uvicorn
+        from gateway.app import app as gateway_app
 
         uvicorn.run(
-            "gateway.app:app",
-            host=args.host,
-            port=args.port,
+            gateway_app,
+            host=getattr(args, "host", "127.0.0.1"),
+            port=getattr(args, "port", 8000),
             reload=False,
         )
         return 0

@@ -1,0 +1,12 @@
+{
+  "name": "reminder_helper",
+  "description": "Create recurring reminder schedules from time-based natural-language requests.",
+  "permissions": [
+    {
+      "id": "reminder_schedule",
+      "title": "리마인더 스케줄 생성",
+      "description": "시간 기반 알림/요약 작업을 반복 스케줄로 등록합니다.",
+      "required_for": ["reminder_helper"]
+    }
+  ]
+}
