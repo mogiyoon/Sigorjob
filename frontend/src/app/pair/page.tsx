@@ -35,7 +35,7 @@ export default function PairPage() {
       const json = (await res.json()) as PairData;
       setData(json);
     } catch {
-      setLoadError("Failed to load mobile pairing info. Please try again shortly.");
+      setLoadError("휴대폰 연결 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setLoading(false);
     }
@@ -128,12 +128,12 @@ export default function PairPage() {
         {data && data.status === "dependency_missing" ? (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
             <p className="text-red-700 text-sm font-medium">
-              Remote access component is unavailable.
+              휴대폰 연결 준비가 아직 끝나지 않았습니다.
             </p>
             <p className="text-red-600 text-sm leading-6">
-              Packaged desktop builds should include `cloudflared` automatically.
-              If you are running from source, install `cloudflared` or set
-              `CLOUDFLARED_PATH` before using mobile pairing.
+              배포된 데스크톱 앱에는 필요한 연결 도구가 보통 자동으로 들어 있습니다.
+              소스에서 직접 실행 중이라면 `cloudflared`를 설치하거나
+              `CLOUDFLARED_PATH`를 지정한 뒤 다시 시도해주세요.
             </p>
             {data.error && (
               <p className="text-red-500 text-xs">{data.error}</p>

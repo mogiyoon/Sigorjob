@@ -1,14 +1,18 @@
 import asyncio
 import json
+import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select
 
 from db.session import get_session
-from db.models import ApprovalRequest, Task as TaskModel, TaskLog
+from db.models import ApprovalRequest, Task as TaskModel, TaskLog, TaskStatus
+from ai import agent as ai_agent
 from intent import router as intent_router
 from orchestrator import engine as orchestrator
+from orchestrator.task import Step, Task
 
 router = APIRouter()
 
@@ -29,6 +33,18 @@ class TaskResponse(BaseModel):
     result: dict | None = None
     created_at: str | None = None
     completed_at: str | None = None
+
+
+def _row_to_response(row: TaskModel) -> TaskResponse:
+    result_data = json.loads(row.result) if row.result else None
+    return TaskResponse(
+        task_id=row.id,
+        command=row.command,
+        status=row.status.value,
+        result=result_data,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+        completed_at=row.completed_at.isoformat() if row.completed_at else None,
+    )
 
 
 @router.post("/command", response_model=TaskResponse)
@@ -91,15 +107,7 @@ async def get_task(task_id: str, session: AsyncSession = Depends(get_session)):
     if row is None:
         raise HTTPException(status_code=404, detail="task not found")
 
-    result_data = json.loads(row.result) if row.result else None
-    return TaskResponse(
-        task_id=row.id,
-        command=row.command,
-        status=row.status.value,
-        result=result_data,
-        created_at=row.created_at.isoformat() if row.created_at else None,
-        completed_at=row.completed_at.isoformat() if row.completed_at else None,
-    )
+    return _row_to_response(row)
 
 
 @router.post("/task/{task_id}/retry", response_model=TaskResponse)
@@ -135,6 +143,109 @@ async def retry_task(task_id: str, session: AsyncSession = Depends(get_session))
     await orchestrator.save_pending(retry_task_plan)
     asyncio.create_task(orchestrator.run(retry_task_plan))
     return TaskResponse(task_id=retry_task_plan.id, command=row.command, status="pending")
+
+
+@router.post("/task/{task_id}/continue-ai", response_model=TaskResponse)
+async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(TaskModel).where(TaskModel.id == task_id))
+    row = result.scalar_one_or_none()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="task not found")
+
+    result_data = json.loads(row.result) if row.result else None
+    if not result_data:
+        raise HTTPException(status_code=400, detail="task result not found")
+
+    first_result = (result_data.get("results") or [{}])[0]
+    draft_data = (first_result.get("data") or {}) if isinstance(first_result, dict) else {}
+    draft_type = draft_data.get("draft_type")
+
+    if draft_type in {"email", "message"}:
+        continued = await ai_agent.continue_draft(row.command, draft_data)
+        if not continued:
+            raise HTTPException(status_code=400, detail="ai continuation failed or AI is not available")
+
+        draft_data["subject"] = continued.get("subject", draft_data.get("subject", ""))
+        draft_data["body"] = continued.get("body", draft_data.get("body", ""))
+        draft_data["ai_enhanced"] = True
+        first_result["data"] = draft_data
+        result_data["summary"] = (
+            "AI가 초안을 이어서 다듬었습니다."
+            if draft_type == "email"
+            else "AI가 메시지 초안을 이어서 다듬었습니다."
+        )
+        result_data["results"][0] = first_result
+        result_data["ai_continuation"] = {
+            "summary": result_data["summary"],
+            "steps": [
+                {
+                    "description": "기존 초안을 읽고 제목과 본문을 다듬었습니다.",
+                }
+            ],
+        }
+    else:
+        continuation = await ai_agent.continue_task(row.command, result_data)
+        if not continuation:
+            raise HTTPException(status_code=400, detail="ai continuation failed or AI is not available")
+
+        steps = [
+            Step(
+                tool=step["tool"],
+                params=step["params"],
+                description=step.get("description", ""),
+            )
+            for step in continuation.get("steps", [])
+            if step.get("tool") and isinstance(step.get("params"), dict)
+        ]
+
+        if steps:
+            continuation_task = Task(command=row.command)
+            continuation_task.steps = steps
+            await orchestrator.run(continuation_task, persist=False)
+            result_data["results"] = [
+                *(result_data.get("results") or []),
+                *continuation_task.results,
+            ]
+            result_data["summary"] = continuation_task.summary or continuation.get("summary") or "AI가 이어서 작업을 진행했습니다."
+            result_data["ai_continuation"] = {
+                "summary": continuation.get("summary") or result_data["summary"],
+                "steps": [
+                    {
+                        "tool": step.tool,
+                        "description": step.description or step.tool,
+                    }
+                    for step in steps
+                ],
+            }
+            if continuation_task.status == "failed":
+                row.status = TaskStatus.failed
+                row.error = continuation_task.error or row.error
+            else:
+                row.status = TaskStatus.done
+                row.error = None
+        else:
+            result_data["summary"] = continuation.get("summary") or "AI가 현재 결과를 바탕으로 후속 작업 방향을 정리했습니다."
+            result_data["ai_continuation"] = {
+                "summary": result_data["summary"],
+                "steps": [],
+            }
+            row.status = TaskStatus.done
+
+    row.result = json.dumps(result_data, ensure_ascii=False)
+    row.completed_at = datetime.now(timezone.utc)
+
+    session.add(
+        TaskLog(
+            id=str(uuid.uuid4()),
+            task_id=task_id,
+            level="info",
+            message="continued draft with AI",
+        )
+    )
+    await session.commit()
+    await session.refresh(row)
+    return _row_to_response(row)
 
 
 @router.delete("/task/{task_id}")

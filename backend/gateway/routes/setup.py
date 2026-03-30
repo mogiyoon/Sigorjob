@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from ai.runtime import has_api_key
+from datetime import datetime, timezone
+from ai.runtime import has_api_key, validate_connection
 from tunnel import manager as tunnel
 from config.store import config_store
 from config.secret_store import secret_store
@@ -36,6 +37,9 @@ async def setup_status():
     mode = _effective_tunnel_mode()
     tunnel_url = tunnel.get_url()
     ai_ready = has_api_key()
+    ai_verified = bool(config_store.get("ai_verified", False)) if ai_ready else False
+    ai_validation_error = config_store.get("ai_validation_error") if ai_ready else None
+    ai_verified_at = config_store.get("ai_verified_at") if ai_ready else None
     return {
         "configured": mode in {"quick", "cloudflare"},
         "tunnel_mode": mode,
@@ -45,6 +49,9 @@ async def setup_status():
         "cloudflared_path": tunnel.get_cloudflared_path(),
         "tunnel_error": tunnel.get_last_error(),
         "ai_configured": ai_ready,
+        "ai_verified": ai_verified,
+        "ai_validation_error": ai_validation_error,
+        "ai_verified_at": ai_verified_at,
         "ai_storage_backend": secret_store.backend("anthropic_api_key"),
         "permissions": list_permissions(
             ai_configured=ai_ready,
@@ -71,10 +78,39 @@ async def setup_ai(req: AISetupRequest):
     success, error = secret_store.set("anthropic_api_key", api_key)
     if not success:
         return {"success": False, "error": error or "Failed to store API key securely."}
+
+    verified, validation_error = validate_connection()
+    config_store.set("ai_verified", verified)
+    config_store.set("ai_validation_error", validation_error)
+    config_store.set(
+        "ai_verified_at",
+        datetime.now(timezone.utc).isoformat() if verified else None,
+    )
     return {
         "success": True,
         "configured": True,
+        "verified": verified,
+        "validation_error": validation_error,
         "storage_backend": secret_store.backend("anthropic_api_key"),
+    }
+
+
+@router.post("/setup/ai/verify")
+async def verify_ai():
+    if not has_api_key():
+        return {"success": False, "error": "API key is not configured.", "verified": False}
+
+    verified, validation_error = validate_connection()
+    config_store.set("ai_verified", verified)
+    config_store.set("ai_validation_error", validation_error)
+    config_store.set(
+        "ai_verified_at",
+        datetime.now(timezone.utc).isoformat() if verified else None,
+    )
+    return {
+        "success": verified,
+        "verified": verified,
+        "validation_error": validation_error,
     }
 
 
@@ -83,6 +119,9 @@ async def reset_ai():
     success, error = secret_store.delete("anthropic_api_key")
     if not success:
         return {"success": False, "error": error or "Failed to remove stored API key."}
+    config_store.delete("ai_verified")
+    config_store.delete("ai_validation_error")
+    config_store.delete("ai_verified_at")
     return {"success": True, "configured": False}
 
 

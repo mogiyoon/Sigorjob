@@ -216,6 +216,12 @@ class IntentRouterFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(task.steps), 1)
         self.assertEqual(task.steps[0].tool, "weather_alert_helper")
 
+    async def test_route_reminder_request_creates_schedule_helper_step(self):
+        task = await intent_router.route("8시 15분에 오늘 일정 요약해서 알람으로 보내줘")
+        self.assertEqual(len(task.steps), 1)
+        self.assertEqual(task.steps[0].tool, "reminder_helper")
+        self.assertIn("8시 15분", task.steps[0].params["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

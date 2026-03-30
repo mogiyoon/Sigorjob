@@ -6,8 +6,10 @@ interface Props {
   task: TaskResponse;
   onDelete?: (taskId: string) => void;
   onRetry?: (taskId: string) => void;
+  onContinueWithAi?: (taskId: string) => void;
   deleting?: boolean;
   retrying?: boolean;
+  continuingWithAi?: boolean;
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (taskId: string) => void;
@@ -26,21 +28,24 @@ export default function TaskCard({
   task,
   onDelete,
   onRetry,
+  onContinueWithAi,
   deleting = false,
   retrying = false,
+  continuingWithAi = false,
   selectable = false,
   selected = false,
   onToggleSelect,
 }: Props) {
   const { t } = useLanguage();
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [aiPlanOpen, setAiPlanOpen] = useState(false);
   const statusLabel: Record<TaskResponse["status"], string> = {
-    pending: t("pending"),
-    running: t("running_status"),
-    done: t("done"),
-    failed: t("failed"),
-    approval_required: t("approval_required"),
-    cancelled: t("cancelled"),
+    pending: t("pending", "준비 중"),
+    running: t("running_status", "진행 중"),
+    done: t("done", "끝남"),
+    failed: t("failed", "문제 발생"),
+    approval_required: t("approval_required", "확인 필요"),
+    cancelled: t("cancelled", "중단됨"),
   };
   const firstResult = task.result?.results?.[0] as
     | {
@@ -61,6 +66,7 @@ export default function TaskCard({
           recipient?: string;
           subject?: string;
           body?: string;
+          ai_enhanced?: boolean;
         };
         error?: string;
       }
@@ -83,6 +89,7 @@ export default function TaskCard({
       : null;
   const searchLinks = firstResult?.data?.links ?? [];
   const errorMessage = firstResult?.error;
+  const aiContinuation = (task.result as { ai_continuation?: { summary?: string; steps?: { tool?: string; description?: string }[] } } | null)?.ai_continuation;
 
   const finishedAt = task.completed_at || task.created_at;
   const formattedFinishedAt = finishedAt
@@ -163,9 +170,9 @@ export default function TaskCard({
       )}
       {purchaseAssist && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1">
-          <p className="text-xs font-medium text-amber-800">구매 진행 안내</p>
+          <p className="text-xs font-medium text-amber-800">구매 도우미 안내</p>
           <p className="text-sm text-amber-900 break-words">
-            최저가나 구매 가능한 상품 페이지까지 연결했습니다. 실제 결제 전에는 상품 옵션, 배송비, 로그인 상태를 한 번 더 확인하세요.
+            살 수 있는 상품 페이지까지 연결했습니다. 결제 전에 상품 옵션, 배송비, 로그인 상태를 한 번 더 확인하세요.
           </p>
         </div>
       )}
@@ -216,7 +223,59 @@ export default function TaskCard({
               <p className="text-sm text-violet-950 whitespace-pre-wrap break-words">{draftResult.body}</p>
             </div>
           )}
+          {draftResult.ai_enhanced && (
+            <p className="text-xs font-medium text-violet-700">{t("ai_continued", "AI가 내용을 더 자연스럽게 다듬었습니다.")}</p>
+          )}
+          {onContinueWithAi && task.status !== "pending" && task.status !== "running" && (
+            <button
+              onClick={() => onContinueWithAi(task.task_id)}
+              disabled={continuingWithAi}
+              className="rounded-md bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+            >
+              {continuingWithAi ? t("running", "진행 중...") : t("continue_with_ai", "AI가 이어서 해주기")}
+            </button>
+          )}
         </div>
+      )}
+      {!draftResult && onContinueWithAi && task.status !== "pending" && task.status !== "running" && (
+        <button
+          onClick={() => onContinueWithAi(task.task_id)}
+          disabled={continuingWithAi}
+          className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+        >
+          {continuingWithAi ? t("running", "진행 중...") : t("continue_with_ai", "AI가 이어서 해주기")}
+        </button>
+      )}
+      {aiContinuation && (
+        <button
+          type="button"
+          onClick={() => setAiPlanOpen((prev) => !prev)}
+          className="w-full rounded-md border border-violet-200 bg-violet-50 p-3 text-left"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-violet-700">{t("ai_continuation_plan", "AI 후속 처리")}</p>
+              {aiContinuation.summary && (
+                <p className="mt-1 text-sm text-violet-950 break-words">{aiContinuation.summary}</p>
+              )}
+            </div>
+            <span className="text-xs text-violet-600">{aiPlanOpen ? t("close", "접기") : t("open", "보기")}</span>
+          </div>
+          {aiPlanOpen && aiContinuation.steps && aiContinuation.steps.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {aiContinuation.steps.map((step, index) => (
+                <div key={`${step.tool || "step"}-${index}`} className="rounded-md bg-white/80 p-3">
+                  <p className="text-xs font-medium text-violet-700">
+                    {step.tool || t("step", "단계")} {index + 1}
+                  </p>
+                  <p className="mt-1 text-sm text-violet-950 break-words">
+                    {step.description || step.tool || t("ai_followup_step", "후속 작업")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </button>
       )}
       {searchLinks.length > 0 && (
         <div className="rounded-md border border-blue-100 bg-blue-50 p-3">
