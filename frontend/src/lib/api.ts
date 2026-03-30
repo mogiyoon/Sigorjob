@@ -111,6 +111,29 @@ export interface PermissionItem {
   risk?: "low" | "medium" | "high";
 }
 
+export interface ConnectionItem {
+  id: string;
+  title: string;
+  description: string;
+  provider: string;
+  kind: "core" | "external";
+  connection_type: string;
+  required_permissions: string[];
+  configured: boolean;
+  verified: boolean;
+  available: boolean;
+  account_label: string | null;
+  metadata: Record<string, unknown>;
+  status:
+    | "connected"
+    | "configured"
+    | "not_connected"
+    | "missing_dependency"
+    | "available"
+    | "planned";
+  next_action: string;
+}
+
 export interface SetupStatusResponse {
   configured: boolean;
   tunnel_mode: "none" | "quick" | "cloudflare";
@@ -124,6 +147,7 @@ export interface SetupStatusResponse {
   ai_validation_error: string | null;
   ai_verified_at: string | null;
   ai_storage_backend: "keychain" | "config";
+  connections: ConnectionItem[];
   permissions: PermissionItem[];
 }
 
@@ -261,6 +285,24 @@ export async function updatePermission(permissionId: string, granted: boolean): 
     body: JSON.stringify({ permission_id: permissionId, granted }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function updateConnection(
+  connectionId: string,
+  input: {
+    configured?: boolean;
+    verified?: boolean;
+    account_label?: string | null;
+    available?: boolean;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<{ success: boolean; connection?: ConnectionItem; error?: string }> {
+  const res = await localApiFetch(`/setup/connections/${connectionId}`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
 export async function disconnectTunnel(): Promise<void> {

@@ -19,6 +19,28 @@ CORE_PERMISSIONS: list[dict[str, Any]] = [
         "source": "core",
         "required_for": ["ai_planning", "ai_review"],
     },
+    {
+        "id": "external_connection_access",
+        "title": "외부 서비스 연결",
+        "description": "Gmail, Google Calendar, MCP 같은 외부 기능을 연결할 수 있습니다.",
+        "source": "core",
+        "required_for": ["external_connections", "oauth_setup", "mcp_runtime"],
+    },
+    {
+        "id": "email_send_access",
+        "title": "이메일 전송",
+        "description": "연결된 메일 서비스로 실제 메일 전송을 허용합니다.",
+        "source": "core",
+        "required_for": ["send_email", "gmail_send"],
+        "risk": "high",
+    },
+    {
+        "id": "mcp_runtime_access",
+        "title": "MCP 실행",
+        "description": "외부 MCP 서버를 붙여 Sigorjob 기능을 확장합니다.",
+        "source": "core",
+        "required_for": ["mcp_runtime", "external_tools"],
+    },
 ]
 
 
