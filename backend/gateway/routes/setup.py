@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 from ai.runtime import has_api_key, validate_connection
 from tunnel import manager as tunnel
+from connections.registry import list_connections, update_external_connection
 from config.store import config_store
 from config.secret_store import secret_store
 from permissions import list_permissions, set_permission
@@ -21,6 +22,14 @@ class AISetupRequest(BaseModel):
 class PermissionUpdateRequest(BaseModel):
     permission_id: str
     granted: bool
+
+
+class ConnectionUpdateRequest(BaseModel):
+    configured: bool | None = None
+    verified: bool | None = None
+    account_label: str | None = None
+    available: bool | None = None
+    metadata: dict | None = None
 
 
 def _effective_tunnel_mode() -> str:
@@ -53,11 +62,37 @@ async def setup_status():
         "ai_validation_error": ai_validation_error,
         "ai_verified_at": ai_verified_at,
         "ai_storage_backend": secret_store.backend("anthropic_api_key"),
+        "connections": list_connections(),
         "permissions": list_permissions(
             ai_configured=ai_ready,
             tunnel_configured=mode in {"quick", "cloudflare"},
         ),
     }
+
+
+@router.get("/setup/connections")
+async def get_connections():
+    return {"connections": list_connections()}
+
+
+@router.post("/setup/connections/{connection_id}")
+async def update_connection(connection_id: str, req: ConnectionUpdateRequest):
+    if connection_id in {"mobile_connection", "anthropic_ai"}:
+        return {
+            "success": False,
+            "error": "Core connections are managed by the app runtime.",
+        }
+    item = update_external_connection(
+        connection_id,
+        configured=req.configured,
+        verified=req.verified,
+        account_label=req.account_label,
+        available=req.available,
+        metadata=req.metadata,
+    )
+    if item is None:
+        return {"success": False, "error": "Unknown connection."}
+    return {"success": True, "connection": item}
 
 
 @router.post("/setup/permissions")

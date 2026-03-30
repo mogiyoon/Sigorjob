@@ -9,6 +9,7 @@ import {
   getSetupStatus,
   localApiFetch,
   sendTestMobileNotification,
+  type ConnectionItem,
   type PermissionItem,
   updatePermission,
 } from "@/lib/api";
@@ -28,12 +29,14 @@ type SetupStatus = {
   ai_validation_error: string | null;
   ai_verified_at: string | null;
   ai_storage_backend: "keychain" | "config";
+  connections: ConnectionItem[];
   permissions: PermissionItem[];
 };
 
 export default function SetupPage() {
   const router = useRouter();
   const { t } = useLanguage();
+  const [openedFromSettings, setOpenedFromSettings] = useState(false);
   const [step, setStep] = useState<Step>("intro");
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
@@ -48,6 +51,30 @@ export default function SetupPage() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [showAiErrorDetails, setShowAiErrorDetails] = useState(false);
 
+  const getConnectionBadgeClass = (connection: ConnectionItem) => {
+    if (connection.verified) return "bg-green-100 text-green-700";
+    if (connection.configured) return "bg-amber-100 text-amber-700";
+    if (connection.available) return "bg-blue-100 text-blue-700";
+    return "bg-gray-100 text-gray-600";
+  };
+
+  const getConnectionStatusLabel = (connection: ConnectionItem) => {
+    if (connection.verified) return t("connected_short", "Connected");
+    if (connection.configured) return t("needs_check_short", "Check");
+    if (connection.status === "planned") return t("planned_short", "Planned");
+    if (connection.available) return t("ready_short", "Ready");
+    return t("not_set_short", "Not set");
+  };
+
+  const getConnectionActionHint = (connection: ConnectionItem) => {
+    if (connection.verified) return t("connection_manage_hint", "Ready to use in tasks.");
+    if (connection.configured) return t("connection_verify_hint", "Connected info exists, but it still needs to be checked.");
+    if (connection.id === "gmail") return t("gmail_connect_hint", "Connect Gmail before asking Sigorjob to send real email.");
+    if (connection.id === "google_calendar") return t("calendar_connect_hint", "Connect Calendar before asking Sigorjob to create real events.");
+    if (connection.id === "mcp_runtime") return t("mcp_connect_hint", "This will become the shared base for external MCP tools.");
+    return t("connection_connect_hint", "Connect this before using related actions.");
+  };
+
   const getFriendlyAiError = (rawError?: string | null) => {
     if (!rawError) return "";
     const normalized = rawError.toLowerCase();
@@ -59,13 +86,13 @@ export default function SetupPage() {
     ) {
       return t(
         "ai_credit_low",
-        "Anthropic API 크레딧이 부족합니다. Console의 Plans & Billing에서 크레딧을 충전한 뒤 다시 연결 확인을 눌러주세요."
+        "Your Anthropic API credits are too low. Add credits in Plans & Billing, then try verification again."
       );
     }
     if (normalized.includes("invalid x-api-key") || normalized.includes("authentication")) {
       return t(
         "ai_auth_failed",
-        "Anthropic API key를 확인해주세요. 키가 잘못되었거나 더 이상 유효하지 않을 수 있습니다."
+        "Check your Anthropic API key. It may be invalid or no longer active."
       );
     }
     if (
@@ -76,12 +103,12 @@ export default function SetupPage() {
     ) {
       return t(
         "ai_network_failed",
-        "Anthropic API에 연결하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해주세요."
+        "Could not connect to the Anthropic API. Check your network and try again."
       );
     }
     return t(
       "ai_verify_failed_generic",
-      "AI 연결 검증에 실패했습니다. 상세 오류를 확인한 뒤 다시 시도해주세요."
+      "We could not confirm AI access. Check the details and try again."
     );
   };
 
@@ -102,6 +129,10 @@ export default function SetupPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setOpenedFromSettings(params.get("source") === "settings");
+    }
     refreshStatus();
   }, []);
 
@@ -125,11 +156,11 @@ export default function SetupPage() {
         setTunnelUrl(data.tunnel_url);
         setStep("done");
       } else {
-        setError(data.error ?? "연결에 실패했습니다. 설정을 확인해주세요.");
+        setError(data.error ?? t("connect_failed", "Connection failed. Check your settings and try again."));
         setStep(selectedMode === "cloudflare" ? "token" : "intro");
       }
     } catch {
-      setError("백엔드에 연결할 수 없습니다. 앱이 실행 중인지 확인해주세요.");
+      setError(t("backend_unreachable", "Cannot reach the backend. Make sure the app is running."));
       setStep(selectedMode === "cloudflare" ? "token" : "intro");
     }
   };
@@ -148,15 +179,15 @@ export default function SetupPage() {
         setApiKey("");
         setAiMessage(
           data.verified
-            ? "AI key saved and verified successfully."
-            : getFriendlyAiError(data.validation_error) || "The AI key was saved, but we could not confirm real API access yet."
+            ? t("ai_key_saved_verified", "AI key saved and verified.")
+            : getFriendlyAiError(data.validation_error) || t("ai_key_saved_unverified", "The AI key is saved, but real AI access has not been confirmed yet.")
         );
         await refreshStatus();
       } else {
-        setAiMessage(getFriendlyAiError(data.error) || "We could not save the AI key.");
+        setAiMessage(getFriendlyAiError(data.error) || t("ai_key_save_failed", "Could not save the AI key."));
       }
     } catch {
-      setAiMessage("We could not save the AI key.");
+      setAiMessage(t("ai_key_save_failed", "Could not save the AI key."));
     } finally {
       setAiSaving(false);
     }
@@ -169,13 +200,13 @@ export default function SetupPage() {
       const res = await localApiFetch("/setup/ai", { method: "DELETE" });
       const data = await res.json();
       if (data.success) {
-        setAiMessage("The saved AI key has been removed.");
+        setAiMessage(t("ai_key_removed", "Removed the saved AI key."));
         await refreshStatus();
       } else {
-        setAiMessage("We could not remove the saved AI key.");
+        setAiMessage(t("ai_key_remove_failed", "Could not remove the saved AI key."));
       }
     } catch {
-      setAiMessage("We could not remove the saved AI key.");
+      setAiMessage(t("ai_key_remove_failed", "Could not remove the saved AI key."));
     } finally {
       setAiSaving(false);
     }
@@ -188,15 +219,15 @@ export default function SetupPage() {
       const res = await localApiFetch("/setup/ai/verify", { method: "POST" });
       const data = await res.json();
       if (data.verified) {
-        setAiMessage("AI access is ready to use.");
+        setAiMessage(t("ai_verified_now", "AI is ready to use."));
       } else {
         setAiMessage(
-          getFriendlyAiError(data.validation_error ?? data.error) || "We could not confirm AI access."
+          getFriendlyAiError(data.validation_error ?? data.error) || t("ai_verify_failed_short", "Could not verify AI access.")
         );
       }
       await refreshStatus();
     } catch {
-      setAiMessage("We could not confirm AI access.");
+      setAiMessage(t("ai_verify_failed_short", "Could not verify AI access."));
     } finally {
       setAiSaving(false);
     }
@@ -207,7 +238,7 @@ export default function SetupPage() {
       await updatePermission(permission.id, !permission.granted);
       await refreshStatus();
     } catch {
-      setAiMessage("We could not update that permission.");
+      setAiMessage(t("permission_update_failed", "Could not update the permission."));
     }
   };
 
@@ -219,9 +250,9 @@ export default function SetupPage() {
         title: "Sigorjob test",
         body: "If your phone is connected and the app is open, you should see this in a few seconds.",
       });
-      setMobileMessage("A test notification has been queued. Keep the phone app open and wait a few seconds.");
+      setMobileMessage(t("test_notification_sent", "A test notification has been queued. Keep the phone app open and wait a few seconds."));
     } catch {
-      setMobileMessage("We could not send the test notification.");
+      setMobileMessage(t("test_notification_failed", "Could not send a test notification."));
     } finally {
       setNotificationTesting(false);
     }
@@ -247,24 +278,24 @@ export default function SetupPage() {
       );
       setSelectedMode("quick");
       setStep("intro");
-      setMobileMessage("Phone connection has been turned off.");
+      setMobileMessage(t("mobile_disconnected_message", "Phone connection has been turned off."));
       await refreshStatus();
     } catch {
-      setMobileMessage("We could not turn off the phone connection.");
+      setMobileMessage(t("mobile_disconnect_failed", "Could not turn off the phone connection."));
     } finally {
       setDisconnecting(false);
     }
   };
 
   const aiSettingsCard = (
-    <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
       <div className="space-y-1">
-        <h2 className="font-semibold text-gray-800">{t("ai_fallback_setup")}</h2>
+        <h2 className="font-semibold text-gray-900">{t("ai_fallback_setup")}</h2>
         <p className="text-sm text-gray-600">
-          {t("ai_fallback_desc")}
+          {t("ai_setup_short_desc", "Set up AI so it can continue tasks when needed.")}
         </p>
       </div>
-      <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3">
+      <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-gray-900">{t("anthropic_api_key")}</p>
@@ -300,8 +331,8 @@ export default function SetupPage() {
                   className="text-xs font-medium text-amber-800 underline underline-offset-2"
                 >
                   {showAiErrorDetails
-                    ? t("hide_ai_error_details", "상세 오류 숨기기")
-                    : t("show_ai_error_details", "상세 오류 보기")}
+                    ? t("hide_ai_error_details", "Hide technical details")
+                    : t("show_ai_error_details", "Show technical details")}
                 </button>
                 {showAiErrorDetails && (
                   <pre className="overflow-x-auto rounded-lg bg-amber-100 p-3 text-xs leading-5 text-amber-900 whitespace-pre-wrap break-words">
@@ -314,7 +345,7 @@ export default function SetupPage() {
         )}
         {status?.ai_verified && (
           <p className="text-xs text-green-700">
-            {t("ai_verified_desc", "실제 AI 연결 검증까지 완료되었습니다.")}
+            {t("ai_verified_desc", "Real AI access has been confirmed.")}
           </p>
         )}
         <input
@@ -339,7 +370,7 @@ export default function SetupPage() {
               disabled={aiSaving}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
             >
-              {t("verify_connection", "연결 확인")}
+              {t("verify_connection", "Check AI access")}
             </button>
           )}
           {status?.ai_configured && (
@@ -353,11 +384,11 @@ export default function SetupPage() {
           )}
         </div>
       </div>
-      <div className="rounded-lg border border-gray-100 bg-white p-4 space-y-3">
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 space-y-3">
         <div className="space-y-1">
           <p className="text-sm font-medium text-gray-900">{t("api_key_guide")}</p>
           <p className="text-xs text-gray-500 leading-5">
-            {t("api_key_guide_desc")}
+            {t("api_key_guide_short_desc", "Use these links to see where keys are created.")}
           </p>
         </div>
         <div className="space-y-3">
@@ -424,16 +455,16 @@ export default function SetupPage() {
   );
 
   const permissionsCard = (
-    <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
       <div className="space-y-1">
-        <h2 className="font-semibold text-gray-800">{t("permissions_title")}</h2>
-        <p className="text-sm text-gray-600">{t("permissions_desc")}</p>
+        <h2 className="font-semibold text-gray-900">{t("permissions_title")}</h2>
+        <p className="text-sm text-gray-600">{t("permissions_short_desc", "Turn sensitive features on or off here.")}</p>
       </div>
       {(status?.permissions ?? []).some((permission) => permission.risk === "high") && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
-          <p className="text-sm font-medium text-amber-900">민감한 작업 권한</p>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+          <p className="text-sm font-medium text-amber-900">{t("sensitive_permissions_title", "Sensitive permissions")}</p>
           <p className="text-xs text-amber-800 leading-5">
-            결제, 구매 진행, 외부 서비스 조작처럼 실수 비용이 큰 기능은 여기서 별도로 관리하세요.
+            {t("sensitive_permissions_desc", "Manage payment, purchase, and external service actions separately here.")}
           </p>
           <div className="space-y-3">
             {(status?.permissions ?? [])
@@ -441,17 +472,17 @@ export default function SetupPage() {
               .map((permission) => (
                 <div
                   key={permission.id}
-                  className="rounded-lg border border-amber-200 bg-white p-4 flex items-start justify-between gap-4"
+                  className="rounded-2xl border border-amber-200 bg-white p-4 flex items-start justify-between gap-4"
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-gray-900">{permission.title}</p>
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                        High risk
+                        {t("risk_high", "Caution")}
                       </span>
                     </div>
                     <p className="text-xs text-gray-600 leading-5">{permission.description}</p>
-                    <p className="text-xs text-gray-500">Source: {permission.source}</p>
+                    <p className="text-xs text-gray-500">{t("storage_location")}: {permission.source}</p>
                   </div>
                   <button
                     onClick={() => handlePermissionToggle(permission)}
@@ -474,12 +505,12 @@ export default function SetupPage() {
           .map((permission) => (
           <div
             key={permission.id}
-            className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-start justify-between gap-4"
+            className="rounded-2xl border border-gray-200 bg-gray-50 p-4 flex items-start justify-between gap-4"
           >
             <div className="space-y-1">
               <p className="text-sm font-medium text-gray-900">{permission.title}</p>
               <p className="text-xs text-gray-600 leading-5">{permission.description}</p>
-              <p className="text-xs text-gray-500">Source: {permission.source}</p>
+              <p className="text-xs text-gray-500">{t("storage_location")}: {permission.source}</p>
             </div>
             <button
               onClick={() => handlePermissionToggle(permission)}
@@ -497,24 +528,159 @@ export default function SetupPage() {
     </div>
   );
 
+  const externalConnections = (status?.connections ?? []).filter(
+    (connection) => connection.kind === "external"
+  );
+
+  const externalConnectionsCard = (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
+      <div className="space-y-1">
+        <h2 className="font-semibold text-gray-900">
+          {t("external_connections_title", "External connections")}
+        </h2>
+        <p className="text-sm text-gray-600">
+          {t(
+            "external_connections_desc",
+            "Use one shared place for Gmail, Calendar, and future MCP tools."
+          )}
+        </p>
+      </div>
+      <div className="space-y-3">
+        {externalConnections.map((connection) => (
+          <div
+            key={connection.id}
+            className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-gray-900">{connection.title}</p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getConnectionBadgeClass(connection)}`}
+                  >
+                    {getConnectionStatusLabel(connection)}
+                  </span>
+                </div>
+                <p className="text-xs leading-5 text-gray-600">{connection.description}</p>
+              </div>
+              <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-500 border border-gray-200">
+                {connection.provider}
+              </span>
+            </div>
+            <p className="text-xs leading-5 text-gray-500">{getConnectionActionHint(connection)}</p>
+            <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+              {connection.required_permissions.map((permissionId) => (
+                <span
+                  key={permissionId}
+                  className="rounded-full border border-gray-200 bg-white px-2 py-1"
+                >
+                  {permissionId}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const mobileGuidanceCard = (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3 shadow-sm">
+      <div className="space-y-1">
+        <h2 className="font-semibold text-gray-800">
+          {t("connection_guidance", "Shortcuts")}
+        </h2>
+        <p className="text-sm text-gray-600">
+          {t("connection_guidance_short_desc", "You can turn this on later and start with local-only use first.")}
+        </p>
+      </div>
+      <button
+        onClick={() => router.push("/")}
+        className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+      >
+        {t("use_local_only_later")}
+      </button>
+    </div>
+  );
+
+  const mobileOperationsCard = (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3 shadow-sm">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-gray-900">
+          {t("mobile_operations", "Mobile actions")}
+        </p>
+        <p className="text-xs text-gray-600 leading-5">
+          {t("mobile_operations_short_desc", "Send a test notification or disconnect and start again.")}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={handleTestNotification}
+          disabled={notificationTesting}
+          className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
+        >
+          {notificationTesting ? t("sending", "Sending...") : t("send_test_notification", "Send test notification")}
+        </button>
+        <button
+          onClick={handleDisconnectTunnel}
+          disabled={disconnecting}
+          className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+        >
+          {disconnecting ? t("disconnecting_short", "Disconnecting...") : t("disconnect_mobile_connection", "Disconnect phone connection")}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-10">
       <div className="mx-auto w-full max-w-5xl space-y-6">
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-4">
+          <button
+            onClick={() => router.push("/")}
+            className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+          >
+            {t("back", "← Back")}
+          </button>
           <LanguageToggle />
         </div>
+        <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-950">{t("setup_title")}</h1>
+              <p className="text-sm text-gray-500">{t("setup_overview_short", "Manage mobile access, AI, and permissions in one place.")}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  status?.tunnel_active
+                    ? "bg-emerald-50 text-emerald-800"
+                    : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {t("mobile_connection", "Mobile")}: {status?.tunnel_active ? t("connected_short", "Connected") : t("disconnected_short", "Off")}
+              </span>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  status?.ai_verified
+                    ? "bg-violet-50 text-violet-800"
+                    : status?.ai_configured
+                      ? "bg-amber-50 text-amber-800"
+                      : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                AI: {status?.ai_verified ? t("connected_short", "Connected") : status?.ai_configured ? t("ready_short", "Ready") : t("not_set_short", "Not set")}
+              </span>
+            </div>
+          </div>
+        </section>
         {status?.cloudflared_installed === false && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2">
             <h2 className="text-sm font-semibold text-amber-900">
-              Phone connection is not ready yet
+              {t("mobile_tool_missing_title", "Phone connection is not ready yet")}
             </h2>
             <p className="text-sm text-amber-800 leading-6">
-              Your phone cannot connect until the required connection tool is available to this app.
-            </p>
-            <p className="text-xs text-amber-700 leading-5">
-              Packaged desktop builds should include it automatically. If you are
-              running from source, install `cloudflared` or set the
-              `CLOUDFLARED_PATH` environment variable, then reopen this page.
+              {t("missing_mobile_tool_desc", "This app could not find the phone connection tool.")}
             </p>
           </div>
         )}
@@ -526,19 +692,13 @@ export default function SetupPage() {
                 {mobileMessage}
               </div>
             )}
-            <div className="space-y-2">
-              <h1 className="text-2xl font-bold text-gray-900">{t("setup_title")}</h1>
-              <p className="max-w-2xl text-gray-500 text-sm">
-                {t("setup_desc")}
-              </p>
-            </div>
             <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
               <div className="space-y-6">
-                <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+                <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
                   <div className="space-y-1">
-                    <h2 className="font-semibold text-gray-800">{t("mobile_connection", "모바일 연결")}</h2>
+                    <h2 className="font-semibold text-gray-900">{t("mobile_connection", "Mobile Connect")}</h2>
                     <p className="text-sm text-gray-600">
-                      {t("cloudflare_tunnel_desc")}
+                      {t("mobile_setup_short_desc", "Choose a connection type and start right away.")}
                     </p>
                   </div>
                   <div className="space-y-3">
@@ -575,9 +735,6 @@ export default function SetupPage() {
                       </p>
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500 leading-5">
-                    {t("packaged_note")}
-                  </p>
                   <div className="flex flex-wrap gap-3">
                     <button
                       onClick={() => {
@@ -608,32 +765,13 @@ export default function SetupPage() {
                     </a>
                   </div>
                 </div>
-
-                {permissionsCard}
+                {mobileGuidanceCard}
               </div>
 
               <div className="space-y-6">
                 {aiSettingsCard}
-
-                <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-3">
-                  <div className="space-y-1">
-                    <h2 className="font-semibold text-gray-800">
-                      {t("connection_guidance", "바로가기")}
-                    </h2>
-                    <p className="text-sm text-gray-600">
-                      {t(
-                        "connection_guidance_desc",
-                        "지금은 연결을 시작하거나, 나중에 로컬 전용으로 먼저 써볼 수 있습니다."
-                      )}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => router.push("/")}
-                    className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-                  >
-                    {t("use_local_only_later")}
-                  </button>
-                </div>
+                {externalConnectionsCard}
+                {permissionsCard}
               </div>
             </section>
           </>
@@ -648,11 +786,9 @@ export default function SetupPage() {
             )}
             <div className="text-center space-y-1">
               <h1 className="text-xl font-bold text-gray-900">{t("enter_tunnel_token")}</h1>
-              <p className="text-sm text-gray-500">
-                {t("tunnel_token_desc")}
-              </p>
+              <p className="text-sm text-gray-500">{t("tunnel_token_desc")}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+            <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3 shadow-sm">
               <label className="block text-sm font-medium text-gray-700">
                 {t("tunnel_token")}
               </label>
@@ -668,14 +804,10 @@ export default function SetupPage() {
               )}
               {status?.cloudflared_installed === false && (
                 <p className="text-xs text-amber-700">
-                  배포된 데스크톱 앱이라면 번들 문제가 있을 수 있습니다. 소스 실행 환경이라면
-                  `cloudflared` 설치가 필요합니다.
+                  {t("source_requires_cloudflared", "If you are running from source, cloudflared may still need to be installed.")}
                 </p>
               )}
-              <p className="text-xs text-gray-500 leading-5">
-                정식 Tunnel은 Cloudflare 쪽에서 public hostname 또는 route 설정까지
-                되어 있어야 실제 외부 URL이 활성화됩니다.
-              </p>
+              <p className="text-xs text-gray-500 leading-5">{t("token_ready_note", "Only tokens with completed Cloudflare setup can connect.")}</p>
             </div>
             {permissionsCard}
             <button
@@ -695,7 +827,7 @@ export default function SetupPage() {
         )}
 
         {step === "connecting" && (
-          <div className="text-center space-y-4">
+          <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center space-y-4 shadow-sm">
             <div className="animate-spin w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full mx-auto" />
             <p className="text-gray-600">{t("connecting_tunnel")}</p>
             <p className="text-sm text-gray-400">{t("up_to_20_seconds")}</p>
@@ -713,9 +845,9 @@ export default function SetupPage() {
               <div className="text-4xl">✓</div>
               <h1 className="text-xl font-bold text-gray-900">{t("connection_complete")}</h1>
             </div>
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+            <div className="bg-green-50 border border-green-200 rounded-2xl p-4 space-y-2">
               <p className="text-xs text-green-600">
-                {selectedMode === "quick" ? "Quick Tunnel" : "정식 Tunnel"}
+                {selectedMode === "quick" ? "Quick Tunnel" : t("named_tunnel")}
               </p>
               <p className="text-sm text-green-700 font-medium">{t("tunnel_url")}</p>
               <p className="font-mono text-sm text-green-800 break-all">{tunnelUrl}</p>
@@ -725,46 +857,19 @@ export default function SetupPage() {
             </div>
             <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
               <div className="space-y-6">
-                <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-gray-900">
-                      {t("mobile_operations", "모바일 운영")}
-                    </p>
-                    <p className="text-xs text-gray-600 leading-5">
-                      {t(
-                        "mobile_operations_desc",
-                        "테스트 알림을 보내거나 연결을 끊고 다시 페어링할 수 있습니다."
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleTestNotification}
-                      disabled={notificationTesting}
-                      className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
-                    >
-                      {notificationTesting ? "Sending..." : "Send test notification"}
-                    </button>
-                    <button
-                      onClick={handleDisconnectTunnel}
-                      disabled={disconnecting}
-                      className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
-                    >
-                      {disconnecting ? "Disconnecting..." : "Disconnect mobile connection"}
-                    </button>
-                  </div>
-                </div>
-                {permissionsCard}
+                {mobileOperationsCard}
               </div>
               <div className="space-y-6">
                 {aiSettingsCard}
+                {externalConnectionsCard}
+                {permissionsCard}
               </div>
             </section>
             <button
               onClick={() => router.push("/")}
               className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
             >
-              {t("start")}
+              {openedFromSettings ? t("go_back", "Back") : t("start")}
             </button>
           </>
         )}
