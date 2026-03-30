@@ -65,8 +65,8 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
     <section className="rounded-2xl border border-gray-200 bg-white p-4 md:p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-gray-900">{t("schedules_title")}</h2>
-          <p className="text-xs text-gray-500">{t("schedules_desc")}</p>
+          <h2 className="text-sm font-semibold text-gray-900">{t("schedules_title", "루틴")}</h2>
+          <p className="text-xs text-gray-500">{t("schedules_desc", "반복해서 돌릴 작업을 등록하고 관리합니다.")}</p>
         </div>
         <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
           {schedules.length}{t("count_suffix", "개")}
@@ -77,19 +77,19 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={t("name")}
+          placeholder={t("schedule_name_placeholder", "루틴 이름")}
           className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
         />
         <input
           value={command}
           onChange={(e) => setCommand(e.target.value)}
-          placeholder={t("command_to_run")}
+          placeholder={t("command_to_run", "실행할 내용")}
           className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
         />
         <input
           value={cron}
           onChange={(e) => setCron(e.target.value)}
-          placeholder="0 9 * * *"
+          placeholder={t("repeat_time_placeholder", "반복 시간")}
           className="rounded-xl border border-gray-300 px-3 py-2 text-sm font-mono"
         />
         <div className="flex flex-wrap gap-2 pt-1">
@@ -109,7 +109,7 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
           disabled={saving}
           className="justify-self-start rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {saving ? t("adding_schedule") : t("add_schedule")}
+          {saving ? t("adding_schedule", "추가 중...") : t("add_schedule", "루틴 추가")}
         </button>
       </form>
 
@@ -133,8 +133,8 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
             </div>
             <p className="text-sm text-gray-700">{schedule.command}</p>
             <div className="grid gap-2 text-xs text-gray-500 md:grid-cols-2">
-              <p>{t("next_run")}: {formatDateTime(schedule.next_run_at)}</p>
-              <p>{t("last_run", "마지막 실행")}: {formatDateTime(schedule.last_run_at)}</p>
+              <p>{t("next_run", "다음 실행")}: {formatDateTime(schedule.next_run_at)}</p>
+              <p>{t("last_run", "최근 실행")}: {formatDateTime(schedule.last_run_at)}</p>
             </div>
           </div>
         ))}

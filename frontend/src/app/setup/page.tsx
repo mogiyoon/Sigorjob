@@ -149,14 +149,14 @@ export default function SetupPage() {
         setAiMessage(
           data.verified
             ? "AI key saved and verified successfully."
-            : getFriendlyAiError(data.validation_error) || "AI key was saved, but the live connection could not be verified."
+            : getFriendlyAiError(data.validation_error) || "The AI key was saved, but we could not confirm real API access yet."
         );
         await refreshStatus();
       } else {
-        setAiMessage(getFriendlyAiError(data.error) || "Failed to save AI key.");
+        setAiMessage(getFriendlyAiError(data.error) || "We could not save the AI key.");
       }
     } catch {
-      setAiMessage("Failed to save AI key.");
+      setAiMessage("We could not save the AI key.");
     } finally {
       setAiSaving(false);
     }
@@ -169,13 +169,13 @@ export default function SetupPage() {
       const res = await localApiFetch("/setup/ai", { method: "DELETE" });
       const data = await res.json();
       if (data.success) {
-        setAiMessage("Saved AI key was removed.");
+        setAiMessage("The saved AI key has been removed.");
         await refreshStatus();
       } else {
-        setAiMessage("Failed to remove AI key.");
+        setAiMessage("We could not remove the saved AI key.");
       }
     } catch {
-      setAiMessage("Failed to remove AI key.");
+      setAiMessage("We could not remove the saved AI key.");
     } finally {
       setAiSaving(false);
     }
@@ -188,15 +188,15 @@ export default function SetupPage() {
       const res = await localApiFetch("/setup/ai/verify", { method: "POST" });
       const data = await res.json();
       if (data.verified) {
-        setAiMessage("AI connection verified successfully.");
+        setAiMessage("AI access is ready to use.");
       } else {
         setAiMessage(
-          getFriendlyAiError(data.validation_error ?? data.error) || "Failed to verify AI connection."
+          getFriendlyAiError(data.validation_error ?? data.error) || "We could not confirm AI access."
         );
       }
       await refreshStatus();
     } catch {
-      setAiMessage("Failed to verify AI connection.");
+      setAiMessage("We could not confirm AI access.");
     } finally {
       setAiSaving(false);
     }
@@ -207,7 +207,7 @@ export default function SetupPage() {
       await updatePermission(permission.id, !permission.granted);
       await refreshStatus();
     } catch {
-      setAiMessage("Failed to update permission.");
+      setAiMessage("We could not update that permission.");
     }
   };
 
@@ -217,11 +217,11 @@ export default function SetupPage() {
     try {
       await sendTestMobileNotification({
         title: "Sigorjob test",
-        body: "If your phone is paired and open, you should see this within a few seconds.",
+        body: "If your phone is connected and the app is open, you should see this in a few seconds.",
       });
-      setMobileMessage("A test notification was queued. Keep the mobile app open and wait a few seconds.");
+      setMobileMessage("A test notification has been queued. Keep the phone app open and wait a few seconds.");
     } catch {
-      setMobileMessage("Failed to queue a test notification.");
+      setMobileMessage("We could not send the test notification.");
     } finally {
       setNotificationTesting(false);
     }
@@ -247,10 +247,10 @@ export default function SetupPage() {
       );
       setSelectedMode("quick");
       setStep("intro");
-      setMobileMessage("Mobile connection was disconnected.");
+      setMobileMessage("Phone connection has been turned off.");
       await refreshStatus();
     } catch {
-      setMobileMessage("Failed to disconnect the mobile connection.");
+      setMobileMessage("We could not turn off the phone connection.");
     } finally {
       setDisconnecting(false);
     }
@@ -290,7 +290,7 @@ export default function SetupPage() {
         {status?.ai_configured && !status.ai_verified && (
           <div className="space-y-2">
             <p className="text-xs text-amber-700">
-              {getFriendlyAiError(status.ai_validation_error) || "The key is saved, but the live AI connection is not verified yet."}
+              {getFriendlyAiError(status.ai_validation_error) || "The key is saved, but real AI access is not confirmed yet."}
             </p>
             {status.ai_validation_error && (
               <div className="space-y-2">
@@ -506,11 +506,10 @@ export default function SetupPage() {
         {status?.cloudflared_installed === false && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
             <h2 className="text-sm font-semibold text-amber-900">
-              Remote access component is unavailable
+              Phone connection is not ready yet
             </h2>
             <p className="text-sm text-amber-800 leading-6">
-              Mobile pairing and remote access will not work until `cloudflared` is
-              available to this app.
+              Your phone cannot connect until the required connection tool is available to this app.
             </p>
             <p className="text-xs text-amber-700 leading-5">
               Packaged desktop builds should include it automatically. If you are
