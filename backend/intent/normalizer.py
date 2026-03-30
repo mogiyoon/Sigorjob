@@ -61,6 +61,14 @@ EMAIL_SEND_KEYWORDS = (
     "메일 보내 줄래",
     "이메일 보내줄래",
     "이메일 보내 줄래",
+    "메일 보내",
+    "이메일 보내",
+    "메일 전송",
+    "이메일 전송",
+    "보내달라",
+    "보내 달라",
+    "보내달라고",
+    "보내 달라고",
 )
 TIME_KEYWORDS = ("지금 몇 시", "현재 시간", "what time is it", "current time")
 DATE_KEYWORDS = ("오늘 날짜", "현재 날짜", "date today", "today's date")
