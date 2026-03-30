@@ -22,6 +22,7 @@ Already implemented:
 - remote access through Cloudflare Tunnel
 - mobile WebView wrapper
 - headless CLI for non-GUI servers
+- shared connection model groundwork for mobile access, AI access, Gmail, Google Calendar, and future MCP-based tools
 
 ## Work That Still Comes After the Current MVP
 
@@ -37,6 +38,7 @@ The following items are already complete or mostly complete:
 
 - commands defined by rules run without AI
 - ambiguous commands can be interpreted through AI
+- failed non-AI paths can hand work off to AI continuation
 - risky work is routed into approval or blocked by policy
 - execution results are persisted
 - the frontend can submit commands and display results
