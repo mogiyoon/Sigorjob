@@ -265,6 +265,15 @@ def detect_intent(command: str) -> NormalizedIntent | None:
             description="email_send",
         )
 
+    reminder_schedule = _extract_reminder_schedule_intent(normalized)
+    if reminder_schedule:
+        return NormalizedIntent(
+            category="reminder_schedule",
+            command=normalized,
+            params=reminder_schedule,
+            description="reminder_schedule",
+        )
+
     shopping_query = _extract_shopping_query(normalized)
     if shopping_query:
         return NormalizedIntent(
@@ -436,6 +445,27 @@ def _extract_email_send_intent(command: str) -> dict | None:
         "url": mailto,
         "title": f"{recipient}에 메일 보내기",
     }
+
+
+def _extract_reminder_schedule_intent(command: str) -> dict | None:
+    lowered = command.lower()
+    if not re.search(r"(오전|오후|아침|저녁|밤)?\s*\d{1,2}시(?:\s*\d{1,2}분)?", command):
+        return None
+    if not any(
+        keyword in command or keyword in lowered
+        for keyword in (
+            "알람",
+            "알림",
+            "리마인드",
+            "알려줘",
+            "보내줘",
+            "보내 줄래",
+        )
+    ):
+        return None
+    if any(keyword in command for keyword in ("날씨", "기상청")):
+        return None
+    return {"text": command}
 
 
 def _extract_shopping_query(command: str) -> dict | None:

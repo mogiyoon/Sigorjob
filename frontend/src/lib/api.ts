@@ -120,6 +120,9 @@ export interface SetupStatusResponse {
   cloudflared_path: string | null;
   tunnel_error: string | null;
   ai_configured: boolean;
+  ai_verified: boolean;
+  ai_validation_error: string | null;
+  ai_verified_at: string | null;
   ai_storage_backend: "keychain" | "config";
   permissions: PermissionItem[];
 }
@@ -154,6 +157,14 @@ export async function deleteTask(taskId: string): Promise<void> {
 
 export async function retryTask(taskId: string): Promise<TaskResponse> {
   const res = await apiFetch(`/task/${taskId}/retry`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function continueTaskWithAi(taskId: string): Promise<TaskResponse> {
+  const res = await apiFetch(`/task/${taskId}/continue-ai`, {
     method: "POST",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

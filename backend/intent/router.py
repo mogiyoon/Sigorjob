@@ -3,8 +3,10 @@ import yaml
 from pathlib import Path
 from orchestrator.task import Task, Step
 from ai import agent as ai_agent
+from ai.runtime import has_api_key
 from intent import risk_evaluator
 from intent.normalizer import (
+    _looks_like_automation_request,
     build_ai_assisted_browser_intent,
     build_last_resort_intent,
     detect_intent,
@@ -27,7 +29,7 @@ def load_rules():
 
 
 async def route(command: str) -> Task:
-    """명령어를 받아 Task 생성. 규칙 매칭 → AI 폴백."""
+    """명령어를 받아 Task 생성. 비AI 우선 → 실패 시 AI가 전체를 이어받음."""
     if not _rules:
         load_rules()
 
@@ -51,7 +53,7 @@ async def route(command: str) -> Task:
         _annotate_risk(task)
         return task
 
-    # 2. AI 폴백
+    # 2. 비AI가 놓친 요청은 AI가 메인 에이전트처럼 이어받음
     logger.info(f"[{task.id}] no rule matched, calling AI")
     plan = await ai_agent.plan(normalized_command)
     task.intent = plan.get("intent", normalized_command)
@@ -59,30 +61,54 @@ async def route(command: str) -> Task:
         Step(tool=s["tool"], params=s["params"], description=s.get("description", ""))
         for s in plan.get("steps", [])
     ]
+    if task.steps and _looks_like_automation_request(normalized_command):
+        only_browser = all(step.tool == "browser" for step in task.steps)
+        if only_browser:
+            logger.info(f"[{task.id}] AI returned browser-only plan for automation request, retrying helper fallback")
+            task.steps = []
     if not task.steps:
-        ai_browser_hint = await ai_agent.browser_assist(normalized_command)
-        if ai_browser_hint:
-            assisted_intent = build_ai_assisted_browser_intent(ai_browser_hint, normalized_command)
-            if assisted_intent:
+        automation_hint = await ai_agent.automation_assist(normalized_command)
+        if automation_hint:
+            tool = str(automation_hint.get("tool") or "").strip()
+            text = str(automation_hint.get("text") or normalized_command).strip() or normalized_command
+            description = str(automation_hint.get("description") or "ai_automation_fallback").strip()
+            if tool in {
+                "reminder_helper",
+                "weather_alert_helper",
+                "calendar_helper",
+            }:
                 fallback_step = Step(
-                    tool=_intent_tool(assisted_intent.category),
-                    params=assisted_intent.params,
-                    description=assisted_intent.description,
+                    tool=tool,
+                    params={"text": text},
+                    description=description,
                 )
-                logger.info(f"[{task.id}] using AI browser fallback: {fallback_step.tool}")
+                logger.info(f"[{task.id}] using AI automation fallback: {fallback_step.tool}")
                 task.steps = [fallback_step]
+        if not task.steps:
+            ai_browser_hint = await ai_agent.browser_assist(normalized_command)
+            if ai_browser_hint:
+                assisted_intent = build_ai_assisted_browser_intent(ai_browser_hint, normalized_command)
+                if assisted_intent:
+                    fallback_step = Step(
+                        tool=_intent_tool(assisted_intent.category),
+                        params=assisted_intent.params,
+                        description=assisted_intent.description,
+                    )
+                    logger.info(f"[{task.id}] using AI browser fallback: {fallback_step.tool}")
+                    task.steps = [fallback_step]
         if task.steps:
             _annotate_risk(task)
             return task
-        fallback_intent = build_last_resort_intent(normalized_command)
-        if fallback_intent:
-            fallback_step = Step(
-                tool=_intent_tool(fallback_intent.category),
-                params=fallback_intent.params,
-                description=fallback_intent.description,
-            )
-            logger.info(f"[{task.id}] using last-resort fallback: {fallback_step.tool}")
-            task.steps = [fallback_step]
+        if not has_api_key():
+            fallback_intent = build_last_resort_intent(normalized_command)
+            if fallback_intent:
+                fallback_step = Step(
+                    tool=_intent_tool(fallback_intent.category),
+                    params=fallback_intent.params,
+                    description=fallback_intent.description,
+                )
+                logger.info(f"[{task.id}] using last-resort fallback: {fallback_step.tool}")
+                task.steps = [fallback_step]
     _annotate_risk(task)
     return task
 
@@ -103,6 +129,7 @@ def _intent_tool(category: str) -> str:
         "crawl": "crawler",
         "open_url": "browser",
         "shopping_search": "shopping_helper",
+        "reminder_schedule": "reminder_helper",
         "shell_pwd": "shell",
         "shell_ls": "shell",
         "shell_ls_path": "shell",

@@ -9,15 +9,16 @@
 # Sigorjob
 
 Sigorjob is a local-first automation system that uses the user's PC as the execution hub.
-It is designed to feel like an AI assistant while minimizing actual AI usage wherever rules-based automation can handle the work.
+It is designed to behave like a general-purpose AI agent, while minimizing actual AI usage wherever rules-based automation, plugins, or user customization can handle the work.
 
 ## Core Idea
 
 - The local PC is the execution authority
 - Web, mobile, and CLI are control surfaces
-- Rules-based automation is the default path
-- AI is only used at limited decision points
+- Rules-based automation is the default first path
+- If non-AI logic misses, AI should still be able to take over and complete the request
 - Low AI usage is a product differentiator, not just a cost optimization
+- Over time, successful AI flows should be absorbed into non-AI plugins and automations
 
 ## Current Status
 
