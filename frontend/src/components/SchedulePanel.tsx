@@ -23,9 +23,9 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
   });
 
   const quickCrons = [
-    { label: t("weekday_morning", "평일 오전 9시"), value: "0 9 * * 1-5" },
-    { label: t("daily_morning", "매일 오전 8시"), value: "0 8 * * *" },
-    { label: t("daily_evening", "매일 저녁 6시"), value: "0 18 * * *" },
+    { label: t("weekday_morning"), value: "0 9 * * 1-5" },
+    { label: t("daily_morning"), value: "0 8 * * *" },
+    { label: t("daily_evening"), value: "0 18 * * *" },
   ];
 
   async function handleSubmit(e: FormEvent) {
@@ -48,7 +48,7 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
   }
 
   const formatDateTime = (value: string | null) => {
-    if (!value) return t("not_scheduled", "미정");
+    if (!value) return t("not_scheduled", "TBD");
     try {
       return new Intl.DateTimeFormat(undefined, {
         month: "short",
@@ -62,88 +62,105 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
   };
 
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-4 md:p-5 space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-gray-900">{t("schedules_title", "루틴")}</h2>
-          <p className="text-xs text-gray-500">{t("schedules_desc", "반복해서 돌릴 작업을 등록하고 관리합니다.")}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+            {t("routines")}
+          </p>
+          <h2 className="mt-1 text-base font-semibold text-gray-950">
+            {t("schedules_title")}
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            {t("schedules_desc")}
+          </p>
         </div>
         <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
-          {schedules.length}{t("count_suffix", "개")}
+          {schedules.length}{t("count_suffix")}
         </span>
       </div>
 
-      <form onSubmit={handleSubmit} className="grid gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t("schedule_name_placeholder", "루틴 이름")}
-          className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
-        />
-        <input
-          value={command}
-          onChange={(e) => setCommand(e.target.value)}
-          placeholder={t("command_to_run", "실행할 내용")}
-          className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
-        />
-        <input
-          value={cron}
-          onChange={(e) => setCron(e.target.value)}
-          placeholder={t("repeat_time_placeholder", "반복 시간")}
-          className="rounded-xl border border-gray-300 px-3 py-2 text-sm font-mono"
-        />
-        <div className="flex flex-wrap gap-2 pt-1">
-          {quickCrons.map((preset) => (
-            <button
-              key={preset.value}
-              type="button"
-              onClick={() => setCron(preset.value)}
-              className="rounded-full border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-        <button
-          type="submit"
-          disabled={saving}
-          className="justify-self-start rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? t("adding_schedule", "추가 중...") : t("add_schedule", "루틴 추가")}
-        </button>
-      </form>
+      <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+        <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-900">{t("add_schedule")}</p>
+            <p className="text-xs text-gray-500">
+              {t("schedule_form_desc")}
+            </p>
+          </div>
 
-      <div className="space-y-3">
-        {sortedSchedules.map((schedule) => (
-          <div key={schedule.schedule_id} className="rounded-xl border border-gray-200 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-gray-900">{schedule.name}</p>
-                <p className="text-xs font-mono text-gray-500">{schedule.cron}</p>
-              </div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("schedule_name_placeholder")}
+            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+          <textarea
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder={t("command_to_run")}
+            rows={3}
+            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+          <input
+            value={cron}
+            onChange={(e) => setCron(e.target.value)}
+            placeholder={t("repeat_time_placeholder")}
+            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-mono"
+          />
+          <div className="flex flex-wrap gap-2">
+            {quickCrons.map((preset) => (
               <button
-                onClick={async () => {
-                  await deleteSchedule(schedule.schedule_id);
-                  onChanged();
-                }}
-                className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-200"
+                key={preset.value}
+                type="button"
+                onClick={() => setCron(preset.value)}
+                className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
               >
-                {t("delete")}
+                {preset.label}
               </button>
-            </div>
-            <p className="text-sm text-gray-700">{schedule.command}</p>
-            <div className="grid gap-2 text-xs text-gray-500 md:grid-cols-2">
-              <p>{t("next_run", "다음 실행")}: {formatDateTime(schedule.next_run_at)}</p>
-              <p>{t("last_run", "최근 실행")}: {formatDateTime(schedule.last_run_at)}</p>
-            </div>
+            ))}
           </div>
-        ))}
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? t("adding_schedule") : t("add_schedule")}
+          </button>
+        </form>
 
-        {sortedSchedules.length === 0 && (
-          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-5 text-sm text-gray-500">
-            {t("routine_empty_desc", "아직 등록된 루틴이 없습니다.")}
-          </div>
-        )}
+        <div className="space-y-3">
+          {sortedSchedules.map((schedule) => (
+            <div key={schedule.schedule_id} className="rounded-2xl border border-gray-200 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">{schedule.name}</p>
+                  <p className="mt-1 text-xs font-mono text-gray-500">{schedule.cron}</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    await deleteSchedule(schedule.schedule_id);
+                    onChanged();
+                  }}
+                  className="rounded-full border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                >
+                  {t("delete")}
+                </button>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-gray-600">{schedule.command}</p>
+              <div className="mt-4 grid gap-2 rounded-2xl bg-gray-50 p-3 text-xs text-gray-500 sm:grid-cols-2">
+                <p>{t("next_run")}: {formatDateTime(schedule.next_run_at)}</p>
+                <p>{t("last_run")}: {formatDateTime(schedule.last_run_at)}</p>
+              </div>
+            </div>
+          ))}
+
+          {sortedSchedules.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-5 text-sm text-gray-500">
+              {t("routine_empty_desc")}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
