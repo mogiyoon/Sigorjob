@@ -18,6 +18,43 @@ interface Props {
   onLanguageChange: (language: MobileLanguage) => void;
 }
 
+function parseQrPayload(value: string): { url: string; token: string } {
+  const raw = value.trim();
+  const candidates = [raw];
+
+  // Backend generates URL-safe base64, but some scanners/polyfills are stricter
+  // about "-" / "_" and missing padding than Node on desktop is.
+  const normalizedBase64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalizedBase64.length % 4;
+  const paddedBase64 = padding === 0 ? normalizedBase64 : normalizedBase64.padEnd(normalizedBase64.length + (4 - padding), "=");
+  if (paddedBase64 !== raw) {
+    candidates.push(paddedBase64);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as { url?: string; token?: string };
+      if (parsed.url && parsed.token) {
+        return { url: parsed.url, token: parsed.token };
+      }
+    } catch {
+      // Try decoding below.
+    }
+
+    try {
+      const decoded = Buffer.from(candidate, "base64").toString("utf-8");
+      const parsed = JSON.parse(decoded) as { url?: string; token?: string };
+      if (parsed.url && parsed.token) {
+        return { url: parsed.url, token: parsed.token };
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  throw new Error("invalid_qr_payload");
+}
+
 export default function QRScanScreen({
   onPaired,
   onManualEntry,
@@ -70,8 +107,11 @@ export default function QRScanScreen({
       setSaving(true);
 
       try {
-        const decoded = Buffer.from(code, "base64").toString("utf-8");
-        const data = JSON.parse(decoded) as { url: string; token: string };
+        const data = parseQrPayload(code);
+        console.warn("[pairing] qr parsed", {
+          url: data.url,
+          tokenLength: data.token?.length ?? 0,
+        });
 
         if (!data.url || !data.token) {
           throw new Error(t(language, "invalid_qr"));
@@ -84,9 +124,16 @@ export default function QRScanScreen({
         }
 
         await savePairing({ url: data.url, token: data.token });
+        console.warn("[pairing] qr saved");
         onPaired();
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : t(language, "qr_parse_error");
+        console.error("[pairing] qr failed", e);
+        const msg =
+          e instanceof Error && e.message === "invalid_qr_payload"
+            ? t(language, "invalid_qr")
+            : e instanceof Error
+              ? e.message
+              : t(language, "qr_parse_error");
         Alert.alert(t(language, "connection_failed"), msg, [
           {
             text: t(language, "try_again"),

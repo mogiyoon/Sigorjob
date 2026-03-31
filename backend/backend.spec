@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('policy/policies.yaml', 'policy'), ('intent/rules/rules.yaml', 'intent/rules')],
+    datas=[('policy/policies.yaml', 'policy'), ('intent/rules/rules.yaml', 'intent/rules'), ('../frontend/out', 'frontend_out')],
     hiddenimports=['aiosqlite', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.lifespan', 'uvicorn.lifespan.on'],
     hookspath=[],
     hooksconfig={},
