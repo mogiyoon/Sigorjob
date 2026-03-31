@@ -15,6 +15,8 @@ This document collects practical cautions for using and extending Sigorjob.
 - Seeing `AI connected` in the UI should mean the runtime can use the key, not just that a key was previously stored.
 - If AI fallback is unavailable, some advanced requests may still fail even when the UI suggests AI is configured.
 - AI should be treated as a recovery layer, not the default path for every request.
+- The current design also uses lightweight AI checks around the first and last step, so AI may correct a weak non-AI route without owning the whole task.
+- A weak final result can now hand off into AI continuation instead of always stopping at the first partial answer.
 
 ## Remote and Mobile Access
 
@@ -23,12 +25,14 @@ This document collects practical cautions for using and extending Sigorjob.
 - Quick Tunnel is easier for onboarding, but its URL can change after restart.
 - Named Tunnel is more stable, but it requires additional Cloudflare setup.
 - Mobile pairing depends on the desktop host being online and reachable.
+- Packaged desktop builds now choose a local backend port dynamically, so old assumptions about `127.0.0.1:8000` are no longer reliable.
 
 ## Current Delivery Model
 
 - Many “send” or “notify” style requests currently mean “prepare the result so it can be viewed from the app” rather than “push a native notification”.
 - Some recurring workflows may create a schedule or schedule draft instead of directly delivering a push notification.
 - If a result says it was prepared for the app, check the task list or schedule list rather than expecting a system push.
+- If a result opens a page such as Google Calendar or mail compose, that is still a handoff step, not full completion inside Sigorjob.
 
 ## Plugins and Extensions
 
@@ -47,9 +51,16 @@ This document collects practical cautions for using and extending Sigorjob.
 ## User Expectations
 
 - Users will often phrase requests as if speaking to a general AI agent.
+- Users will also make typos and use natural shorthand, so intent handling should not depend on brittle exact phrases alone.
 - If Sigorjob cannot truly complete such a request, it should respond honestly and use the best available fallback.
 - Avoid making weak partial behavior look like success.
 - “Opened a search page” is not the same as “completed the requested task”.
+
+## Web vs Desktop Runtime
+
+- A behavior that works in a normal browser is not automatically safe in Tauri.
+- External links, clipboard flows, new-window assumptions, and browser-only APIs should be treated as runtime-sensitive.
+- Prefer shared helpers for opening external URLs and other browser-assumed actions instead of sprinkling raw `target="_blank"` or browser globals throughout the UI.
 
 ## Recommended Direction
 

@@ -1,5 +1,7 @@
 package com.sigorjob.mobile
 
+import android.content.Intent
+import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -13,10 +15,24 @@ class MainActivity : ReactActivity() {
    */
   override fun getMainComponentName(): String = "Sigorjob"
 
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    ShareIntentModule.handleIntent(intent, currentReactContext())
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    ShareIntentModule.handleIntent(intent, currentReactContext())
+  }
+
   /**
    * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
    * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  private fun currentReactContext() =
+    (application as MainApplication).reactNativeHost.reactInstanceManager.currentReactContext
 }

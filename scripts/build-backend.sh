@@ -10,6 +10,7 @@ BACKEND_DIR="$ROOT/backend"
 TAURI_BIN_DIR="$ROOT/src-tauri/binaries"
 TARGET="$(rustc -vV | awk '/host:/ {print $2}')"
 PYINSTALLER_CONFIG_DIR="${PYINSTALLER_CONFIG_DIR:-$ROOT/.cache/pyinstaller}"
+FRONTEND_OUT_REL="../frontend/out"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "Missing requirement: python3"
@@ -23,6 +24,12 @@ fi
 
 if [ ! -f "$BACKEND_DIR/requirements.txt" ]; then
   echo "Missing file: $BACKEND_DIR/requirements.txt"
+  exit 1
+fi
+
+if [ ! -f "$ROOT/frontend/out/index.html" ]; then
+  echo "Missing frontend export: $ROOT/frontend/out/index.html"
+  echo "Run the frontend build before packaging the backend."
   exit 1
 fi
 
@@ -44,6 +51,7 @@ PYINSTALLER_CONFIG_DIR="$PYINSTALLER_CONFIG_DIR" python3 -m PyInstaller main.py 
   --name backend \
   --add-data "policy/policies.yaml:policy" \
   --add-data "intent/rules/rules.yaml:intent/rules" \
+  --add-data "$FRONTEND_OUT_REL:frontend_out" \
   --hidden-import aiosqlite \
   --hidden-import uvicorn.logging \
   --hidden-import uvicorn.loops \

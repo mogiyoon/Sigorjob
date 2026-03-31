@@ -1,7 +1,7 @@
 /**
  * API 클라이언트
  *
- * - PC (Tauri/브라우저): http://127.0.0.1:8000 으로 직접 호출
+ * - PC (Tauri/브라우저): 로컬 백엔드 주소로 직접 호출
  * - 모바일 WebView: 터널 URL을 통해 로드되므로 상대 경로 사용
  *   (window.location.origin == 터널 URL → same-origin)
  *
@@ -11,19 +11,63 @@
  * - 프론트는 URL에서 토큰을 제거만 하고 저장하지 않음
  */
 
+declare global {
+  interface Window {
+    __SIGORJOB_LOCAL_API_URL?: string;
+    __SIGORJOB_LOCAL_API_PORT?: number;
+  }
+}
+
+const DEFAULT_LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
+
+function getRuntimeLocalApiBaseUrl(): string {
+  if (typeof window !== "undefined" && window.__SIGORJOB_LOCAL_API_URL) {
+    return window.__SIGORJOB_LOCAL_API_URL;
+  }
+  return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_LOCAL_API_BASE_URL;
+}
+
+function isNativeLocalUi(): boolean {
+  if (typeof window === "undefined") return false;
+  return ["127.0.0.1", "localhost", "tauri.localhost"].includes(window.location.hostname);
+}
+
+async function resolveLocalApiBaseUrl(): Promise<string> {
+  if (typeof window === "undefined") {
+    return DEFAULT_LOCAL_API_BASE_URL;
+  }
+
+  if (!isNativeLocalUi()) {
+    return getRuntimeLocalApiBaseUrl();
+  }
+
+  if (window.__SIGORJOB_LOCAL_API_URL) {
+    return window.__SIGORJOB_LOCAL_API_URL;
+  }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (window.__SIGORJOB_LOCAL_API_URL) {
+      return window.__SIGORJOB_LOCAL_API_URL;
+    }
+  }
+
+  return getRuntimeLocalApiBaseUrl();
+}
+
 export function getBaseUrl(): string {
-  if (typeof window === "undefined") return "http://127.0.0.1:8000";
+  if (typeof window === "undefined") return DEFAULT_LOCAL_API_BASE_URL;
   const origin = window.location.origin;
   // 로컬 개발 환경
   if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
-    return process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+    return getRuntimeLocalApiBaseUrl();
   }
   // 터널 URL에서 로드된 경우 — 같은 오리진으로 API 호출
   return origin;
 }
 
 export function getLocalApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+  return getRuntimeLocalApiBaseUrl();
 }
 
 export function clearToken() {
@@ -50,7 +94,11 @@ export function initTokenFromUrl() {
 }
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(`${getBaseUrl()}${path}`, {
+  const baseUrl =
+    typeof window !== "undefined" && isNativeLocalUi() && path.startsWith("/setup")
+      ? await resolveLocalApiBaseUrl()
+      : getBaseUrl();
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -64,7 +112,8 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 }
 
 export async function localApiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${getLocalApiBaseUrl()}${path}`, {
+  const baseUrl = await resolveLocalApiBaseUrl();
+  return fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -173,9 +222,11 @@ export async function listTasks(limit = 20): Promise<{ tasks: TaskResponse[] }> 
 }
 
 export async function deleteTask(taskId: string): Promise<void> {
+  console.warn("[api] deleteTask request", { taskId, baseUrl: getBaseUrl() });
   const res = await apiFetch(`/task/${taskId}`, {
     method: "DELETE",
   });
+  console.warn("[api] deleteTask response", { taskId, status: res.status, ok: res.ok });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -196,10 +247,12 @@ export async function continueTaskWithAi(taskId: string): Promise<TaskResponse> 
 }
 
 export async function deleteTasks(taskIds: string[]): Promise<void> {
+  console.warn("[api] deleteTasks request", { taskIds, baseUrl: getBaseUrl() });
   const res = await apiFetch("/tasks/delete", {
     method: "POST",
     body: JSON.stringify({ task_ids: taskIds }),
   });
+  console.warn("[api] deleteTasks response", { taskIds, status: res.status, ok: res.ok });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -248,9 +301,16 @@ export async function rejectTask(taskId: string): Promise<void> {
 }
 
 export async function listSchedules(): Promise<{ schedules: ScheduleItem[] }> {
+  console.warn("[api] listSchedules request", { baseUrl: getBaseUrl() });
   const res = await apiFetch("/schedules");
+  console.warn("[api] listSchedules response", { status: res.status, ok: res.ok });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  console.warn("[api] listSchedules payload", {
+    count: data.schedules?.length ?? 0,
+    scheduleIds: (data.schedules ?? []).map((schedule: ScheduleItem) => schedule.schedule_id),
+  });
+  return data;
 }
 
 export async function createSchedule(input: {
@@ -310,6 +370,16 @@ export async function disconnectTunnel(): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function restartQuickTunnel(): Promise<{ success: boolean; tunnel_url: string | null; error?: string }> {
+  console.warn("[api] restartQuickTunnel request", { baseUrl: getLocalApiBaseUrl() });
+  const res = await localApiFetch("/setup/quick", {
+    method: "POST",
+  });
+  console.warn("[api] restartQuickTunnel response", { status: res.status, ok: res.ok });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
 export async function sendTestMobileNotification(input?: {

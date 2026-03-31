@@ -3,6 +3,7 @@ import yaml
 from pathlib import Path
 from orchestrator.task import Task, Step
 from ai import agent as ai_agent
+from ai import reviewer as ai_reviewer
 from ai.runtime import has_api_key
 from intent import risk_evaluator
 from intent.normalizer import (
@@ -47,6 +48,7 @@ async def route(command: str) -> Task:
                 description=normalized_intent.description,
             )
     if step:
+        step = await _maybe_preflight_step(normalized_command, step)
         logger.info(f"[{task.id}] rule matched: {step.tool}")
         task.intent = normalized_command
         task.steps = [step]
@@ -111,6 +113,30 @@ async def route(command: str) -> Task:
                 task.steps = [fallback_step]
     _annotate_risk(task)
     return task
+
+
+async def _maybe_preflight_step(command: str, step: Step) -> Step:
+    review = await ai_reviewer.preflight(
+        command,
+        {
+            "tool": step.tool,
+            "params": step.params,
+            "description": step.description,
+        },
+    )
+    if not review or review.get("acceptable", True):
+        return step
+
+    retry_step = review.get("retry_step") or {}
+    if retry_step.get("tool") and isinstance(retry_step.get("params"), dict):
+        logger.info(f"AI preflight replaced {step.tool} with {retry_step['tool']}")
+        return Step(
+            tool=retry_step["tool"],
+            params=retry_step["params"],
+            description=retry_step.get("description", step.description),
+        )
+
+    return step
 
 
 def _match_rules(command: str) -> Step | None:

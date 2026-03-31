@@ -40,13 +40,17 @@ Implemented today:
 
 - FastAPI backend
 - rules-first intent routing with AI fallback
+- lightweight AI checks at the beginning and end of the pipeline
 - sequential orchestrator
 - approval-required task flow
 - recurring schedules with APScheduler
 - tools: `file`, `shell`, `crawler`, `time`, `system_info`
 - Next.js web UI
 - React Native mobile WebView wrapper
+- Android share-to-app flow for shared text commands
+- iOS share-extension groundwork for shared text commands
 - Tauri desktop shell
+- packaged desktop runtime that auto-picks an available local backend port
 - headless CLI mode
 - Cloudflare Tunnel based remote access
 - shared connection registry groundwork for mobile, AI, Gmail, Calendar, and future MCP tools
@@ -55,7 +59,7 @@ Still planned:
 
 - WebSocket real-time updates
 - more advanced orchestration
-- more tools such as calendar and messaging
+- more native external-service completion beyond helper/open-page flows
 - production-grade mobile widget support
 
 ## Project Structure
@@ -134,6 +138,8 @@ Notes for iOS:
 - camera permission is required for QR pairing
 - the current mobile experience is centered on QR/manual pairing plus the WebView shell
 - Android currently has the more complete local-notification path
+- iOS share-to-app support now uses a Share Extension plus app URL handoff
+- local Xcode/Simulator health still matters for validating the iOS extension end to end
 
 ### Backend tests
 
@@ -214,6 +220,7 @@ Before using remote tunnel features in source-based environments, make sure `clo
 - The intended no-extra-installation experience comes from packaged artifacts:
   - Python backend bundled as a single binary with PyInstaller
   - desktop app bundled with Tauri
+- packaged desktop builds now auto-select an available local API port instead of assuming `127.0.0.1:8000`
 - packaged desktop builds also bundle `cloudflared` for remote/mobile access.
 - Source checkouts and development builds may still rely on a local `cloudflared` install or `CLOUDFLARED_PATH`.
 - `./scripts/check-dist-readiness.sh` validates local build prerequisites.
@@ -257,10 +264,12 @@ Sigorjob은 사용자의 PC를 실행 허브로 사용하는 로컬 우선 자�
 
 - FastAPI 백엔드
 - 규칙 우선 intent routing + AI fallback
+- 시작/마지막 단계의 얇은 AI 점검
 - 순차 오케스트레이터
 - 승인 기반 작업 흐름
 - 반복 스케줄
 - 웹 UI, 모바일 앱, Tauri 데스크톱 앱, CLI
+- Android 공유 버튼으로 들어온 텍스트 실행
 - Cloudflare Tunnel 기반 원격 접속
 
 빠른 시작:

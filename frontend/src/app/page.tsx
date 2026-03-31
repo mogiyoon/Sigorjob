@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ApprovalPanel from "@/components/ApprovalPanel";
 import CommandInput from "@/components/CommandInput";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/components/LanguageProvider";
 import SchedulePanel from "@/components/SchedulePanel";
@@ -26,6 +27,10 @@ import {
 } from "@/lib/api";
 
 type DashboardTab = "execute" | "routines" | "recent";
+type ConfirmAction =
+  | { kind: "delete-one"; taskId: string }
+  | { kind: "delete-many"; taskIds: string[] }
+  | null;
 
 function CircleIconButton({
   label,
@@ -70,6 +75,8 @@ export default function Home() {
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const [aiVerified, setAiVerified] = useState<boolean | null>(null);
   const [aiValidationError, setAiValidationError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const refreshInFlight = useRef(false);
 
   useEffect(() => {
     const localUi =
@@ -99,22 +106,45 @@ export default function Home() {
   }, [router]);
 
   const refreshDashboard = async () => {
+    if (refreshInFlight.current) {
+      console.warn("[dashboard] refresh skipped because another refresh is in flight");
+      return;
+    }
+    refreshInFlight.current = true;
     try {
+      console.warn("[dashboard] refresh start");
       const [approvalData, scheduleData, taskData] = await Promise.all([
         listApprovals(),
         listSchedules(),
         listTasks(),
       ]);
+      console.warn("[dashboard] refresh success", {
+        approvals: approvalData.approvals.length,
+        schedules: scheduleData.schedules.length,
+        tasks: taskData.tasks.length,
+        scheduleIds: scheduleData.schedules.map((schedule) => schedule.schedule_id),
+      });
       setAuthExpired(false);
       setApprovals(approvalData.approvals);
       setSchedules(scheduleData.schedules);
       setTasks(taskData.tasks);
     } catch (error) {
+      console.error("[dashboard] refresh failed", error);
       if (error instanceof UnauthorizedError) {
         setAuthExpired(true);
       }
+    } finally {
+      refreshInFlight.current = false;
     }
   };
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      refreshDashboard();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const handleSubmit = async (text: string) => {
     setLoading(true);
@@ -134,22 +164,26 @@ export default function Home() {
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(`${t("delete")} ?`);
-      if (!confirmed) return;
-    }
-
+  const performDeleteTask = async (taskId: string) => {
     setDeletingTaskId(taskId);
     try {
+      console.warn("[history] delete start", { taskId });
       await deleteTask(taskId);
+      console.warn("[history] delete api success", { taskId });
       setTasks((prev) => prev.filter((task) => task.task_id !== taskId));
+      console.warn("[history] delete state updated", { taskId });
       await refreshDashboard();
     } catch (error) {
-      console.error(error);
+      console.error("[history] delete failed", { taskId, error });
     } finally {
+      console.warn("[history] delete finished", { taskId });
       setDeletingTaskId(null);
     }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    console.warn("[history] delete dialog open", { taskId });
+    setConfirmAction({ kind: "delete-one", taskId });
   };
 
   const handleRetryTask = async (taskId: string) => {
@@ -182,24 +216,52 @@ export default function Home() {
     }
   };
 
-  const handleDeleteSelected = async (taskIds: string[]) => {
-    if (taskIds.length === 0) return;
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(`${t("delete_selected")} ${taskIds.length}?`);
-      if (!confirmed) return;
-    }
-
+  const performDeleteSelected = async (taskIds: string[]) => {
     setBulkDeleting(true);
     try {
+      console.warn("[history] bulk delete start", { taskIds });
       await deleteTasks(taskIds);
+      console.warn("[history] bulk delete api success", { taskIds });
       setTasks((prev) => prev.filter((task) => !taskIds.includes(task.task_id)));
       setSelectedCompletedTaskIds((prev) => prev.filter((taskId) => !taskIds.includes(taskId)));
+      console.warn("[history] bulk delete state updated", { taskIds });
       await refreshDashboard();
     } catch (error) {
-      console.error(error);
+      console.error("[history] bulk delete failed", { taskIds, error });
     } finally {
+      console.warn("[history] bulk delete finished", { taskIds });
       setBulkDeleting(false);
     }
+  };
+
+  const handleDeleteSelected = async (taskIds: string[]) => {
+    if (taskIds.length === 0) return;
+    console.warn("[history] bulk delete dialog open", { taskIds });
+    setConfirmAction({ kind: "delete-many", taskIds });
+  };
+
+  const confirmDialogTitle =
+    confirmAction?.kind === "delete-many" ? t("delete_selected") : t("delete");
+  const confirmDialogDescription =
+    confirmAction?.kind === "delete-many"
+      ? `${confirmAction.taskIds.length}${t("completed_history")}${t("delete_selected")}?`
+      : t("delete");
+  const confirmDialogLoading =
+    confirmAction?.kind === "delete-many" ? bulkDeleting : deletingTaskId !== null;
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+    console.warn("[history] confirm dialog accepted", confirmAction);
+    if (confirmAction.kind === "delete-one") {
+      const taskId = confirmAction.taskId;
+      setConfirmAction(null);
+      await performDeleteTask(taskId);
+      return;
+    }
+
+    const taskIds = confirmAction.taskIds;
+    setConfirmAction(null);
+    await performDeleteSelected(taskIds);
   };
 
   const toggleCompletedTaskSelection = (taskId: string) => {
@@ -241,6 +303,15 @@ export default function Home() {
     }))
     .filter((entry) => entry.recentRuns.length > 0)
     .slice(0, 3);
+
+  console.warn("[dashboard] schedule state snapshot", {
+    schedules: schedules.length,
+    scheduleIds: schedules.map((schedule) => schedule.schedule_id),
+    upcomingSchedules: upcomingSchedules.length,
+    scheduleHistory: scheduleHistory.length,
+    activeTab,
+    isLocalUi,
+  });
 
   const formatDateTime = (value: string | null) => {
     if (!value) return t("not_scheduled", "TBD");
@@ -635,8 +706,8 @@ export default function Home() {
           </section>
         )}
 
-        {infoModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+      {infoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
             <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -703,6 +774,20 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        <ConfirmDialog
+          open={Boolean(confirmAction)}
+          title={confirmDialogTitle}
+          description={confirmDialogDescription}
+          confirmLabel={t("delete")}
+          cancelLabel={t("close")}
+          loading={confirmDialogLoading}
+          onCancel={() => {
+            console.warn("[history] confirm dialog cancelled", confirmAction);
+            setConfirmAction(null);
+          }}
+          onConfirm={handleConfirmAction}
+        />
       </div>
     </main>
   );

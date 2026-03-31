@@ -174,6 +174,7 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
     draft_type = draft_data.get("draft_type")
 
     if draft_type in {"email", "message"}:
+        existing_summary = result_data.get("summary")
         continued = await ai_agent.continue_draft(row.command, draft_data)
         if not continued:
             raise HTTPException(status_code=400, detail="ai continuation failed or AI is not available")
@@ -182,14 +183,15 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
         draft_data["body"] = continued.get("body", draft_data.get("body", ""))
         draft_data["ai_enhanced"] = True
         first_result["data"] = draft_data
-        result_data["summary"] = (
-            "AI가 초안을 이어서 다듬었습니다."
-            if draft_type == "email"
-            else "AI가 메시지 초안을 이어서 다듬었습니다."
-        )
+        if existing_summary and not result_data.get("original_summary"):
+            result_data["original_summary"] = existing_summary
         result_data["results"][0] = first_result
         result_data["ai_continuation"] = {
-            "summary": result_data["summary"],
+            "summary": (
+                "AI가 초안을 이어서 다듬었습니다."
+                if draft_type == "email"
+                else "AI가 메시지 초안을 이어서 다듬었습니다."
+            ),
             "steps": [
                 {
                     "description": "기존 초안을 읽고 제목과 본문을 다듬었습니다.",
@@ -197,6 +199,9 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
             ],
         }
     else:
+        existing_summary = result_data.get("summary")
+        if existing_summary and not result_data.get("original_summary"):
+            result_data["original_summary"] = existing_summary
         continuation = await ai_agent.continue_task(row.command, result_data)
         if not continuation:
             raise HTTPException(status_code=400, detail="ai continuation failed or AI is not available")
@@ -219,9 +224,8 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
                 *(result_data.get("results") or []),
                 *continuation_task.results,
             ]
-            result_data["summary"] = continuation_task.summary or continuation.get("summary") or "AI가 이어서 작업을 진행했습니다."
             result_data["ai_continuation"] = {
-                "summary": continuation.get("summary") or result_data["summary"],
+                "summary": continuation_task.summary or continuation.get("summary") or "AI가 이어서 작업을 진행했습니다.",
                 "steps": [
                     {
                         "tool": step.tool,
@@ -237,9 +241,8 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
                 row.status = TaskStatus.done
                 row.error = None
         else:
-            result_data["summary"] = continuation.get("summary") or "AI가 현재 결과를 바탕으로 후속 작업 방향을 정리했습니다."
             result_data["ai_continuation"] = {
-                "summary": result_data["summary"],
+                "summary": continuation.get("summary") or "AI가 현재 결과를 바탕으로 후속 작업 방향을 정리했습니다.",
                 "steps": [],
             }
             row.status = TaskStatus.done

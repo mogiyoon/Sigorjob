@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/components/LanguageProvider";
-import { localApiFetch } from "@/lib/api";
+import { localApiFetch, restartQuickTunnel } from "@/lib/api";
 
 interface PairData {
   status: "ready" | "tunnel_not_ready" | "dependency_missing";
@@ -24,6 +24,8 @@ export default function PairPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [qrImage, setQrImage] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [restartMessage, setRestartMessage] = useState<string | null>(null);
 
   const fetchPairData = async () => {
     try {
@@ -85,6 +87,25 @@ export default function PairPage() {
     setTimeout(() => setCopiedUrl(false), 2000);
   };
 
+  const handleRestartQuickTunnel = async () => {
+    setRestarting(true);
+    setLoadError(null);
+    setRestartMessage(null);
+    try {
+      const result = await restartQuickTunnel();
+      if (!result.success) {
+        setLoadError(result.error ?? t("quick_tunnel_restart_failed"));
+        return;
+      }
+      setRestartMessage(t("quick_tunnel_restarted"));
+      await fetchPairData();
+    } catch {
+      setLoadError(t("quick_tunnel_restart_failed"));
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   if (loading && !data) {
     return (
       <main className="min-h-screen bg-gray-50 flex flex-col items-center py-12 px-4">
@@ -112,6 +133,12 @@ export default function PairPage() {
         <p className="text-sm text-gray-500 leading-6">
           {t("mobile_app_connect_desc")}
         </p>
+
+        {restartMessage && (
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            {restartMessage}
+          </div>
+        )}
 
         {loadError && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-2">
@@ -149,12 +176,23 @@ export default function PairPage() {
               {t("current_mode")}: {modeLabel}
             </p>
             {data.error && <p className="text-yellow-500 text-xs mt-1">{data.error}</p>}
-            <a
-              href="/setup"
-              className="inline-block mt-3 text-sm text-yellow-800 underline underline-offset-2"
-            >
-              {t("go_to_setup")}
-            </a>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {data.tunnel_mode === "quick" && (
+                <button
+                  onClick={handleRestartQuickTunnel}
+                  disabled={restarting}
+                  className="rounded-lg bg-yellow-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {restarting ? t("restarting_quick_tunnel") : t("restart_quick_tunnel")}
+                </button>
+              )}
+              <a
+                href="/setup"
+                className="inline-block text-sm text-yellow-800 underline underline-offset-2"
+              >
+                {t("go_to_setup")}
+              </a>
+            </div>
           </div>
         ) : data ? (
           <div className="space-y-4">
@@ -164,6 +202,15 @@ export default function PairPage() {
               <p className="text-sm text-green-800 leading-6">
                 {t("pairing_ready_desc")}
               </p>
+              {data.tunnel_mode === "quick" && (
+                <button
+                  onClick={handleRestartQuickTunnel}
+                  disabled={restarting}
+                  className="rounded-lg bg-green-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {restarting ? t("restarting_quick_tunnel") : t("restart_quick_tunnel")}
+                </button>
+              )}
             </div>
 
             <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3 shadow-sm">
