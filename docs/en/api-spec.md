@@ -2,7 +2,8 @@
 
 ## Basics
 
-- Base URL: `http://127.0.0.1:8000`
+- Local source default Base URL: `http://127.0.0.1:8000`
+- Packaged desktop builds now choose an available local port at runtime
 - Request/response format: JSON
 - The current implementation is REST-first. WebSocket is not implemented yet.
 
@@ -17,13 +18,23 @@
 
 The following routes are only accessible locally and return `403 forbidden` for remote access:
 
+- `GET /pair`
 - `GET /pair/data`
 - `GET /pair/status`
 - `POST /pair/rotate`
+- `GET /setup`
 - `GET /setup/status`
+- `GET /setup/connections`
+- `POST /setup/connections/{connection_id}`
+- `POST /setup/permissions`
+- `POST /setup/ai`
+- `POST /setup/ai/verify`
+- `DELETE /setup/ai`
 - `POST /setup/quick`
 - `POST /setup/cloudflare`
 - `DELETE /setup/cloudflare`
+- `DELETE /setup/tunnel`
+- `POST /mobile/notifications/test`
 - `/docs`
 - `/openapi.json`
 
@@ -45,6 +56,26 @@ Main status values:
 - `failed`
 - `approval_required`
 - `cancelled`
+
+### POST /task/{task_id}/retry
+
+Creates a new retry task from the original command.
+
+### POST /task/{task_id}/continue-ai
+
+Asks AI to continue or refine an existing result.
+This may either:
+
+- refine an existing draft such as email/message content
+- append more result items from AI-generated continuation steps
+
+### DELETE /task/{task_id}
+
+Deletes one task and its logs/approval records.
+
+### POST /tasks/delete
+
+Deletes multiple tasks at once.
 
 ### GET /tools
 
@@ -98,6 +129,30 @@ Rotates the current pairing token and invalidates the previous one. Local-only e
 
 Returns remote-tunnel setup status, selected tunnel mode, and current tunnel state. Local-only endpoint.
 
+### GET /setup/connections
+
+Returns the shared connection registry items shown in setup UI. Local-only endpoint.
+
+### POST /setup/connections/{connection_id}
+
+Updates a non-core external connection entry. Local-only endpoint.
+
+### POST /setup/permissions
+
+Updates a stored permission toggle. Local-only endpoint.
+
+### POST /setup/ai
+
+Stores the AI API key and performs validation. Local-only endpoint.
+
+### POST /setup/ai/verify
+
+Re-validates AI connectivity using the stored key. Local-only endpoint.
+
+### DELETE /setup/ai
+
+Removes the stored AI key. Local-only endpoint.
+
 ### POST /setup/quick
 
 Starts Quick Tunnel mode and attempts to get a temporary `trycloudflare.com` URL. Local-only endpoint.
@@ -110,9 +165,25 @@ Stores the Cloudflare named-tunnel token and attempts to start the tunnel. Local
 
 Deletes the stored Cloudflare tunnel token and stops the current tunnel. Local-only endpoint.
 
+### DELETE /setup/tunnel
+
+Stops the current tunnel regardless of mode. Local-only endpoint.
+
 ### GET /tasks
 
 Returns recent tasks for the current machine.
+
+### GET /mobile/notifications
+
+Returns queued mobile notifications for a paired mobile client.
+
+### POST /mobile/notifications/ack
+
+Marks mobile notifications as acknowledged.
+
+### POST /mobile/notifications/test
+
+Queues a test mobile notification. Local-only endpoint.
 
 ## Not Yet Implemented
 

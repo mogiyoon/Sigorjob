@@ -22,6 +22,12 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
     return left - right;
   });
 
+  console.warn("[routines] SchedulePanel render", {
+    schedules: schedules.length,
+    sortedSchedules: sortedSchedules.length,
+    scheduleIds: sortedSchedules.map((schedule) => schedule.schedule_id),
+  });
+
   const quickCrons = [
     { label: t("weekday_morning"), value: "0 9 * * 1-5" },
     { label: t("daily_morning"), value: "0 8 * * *" },

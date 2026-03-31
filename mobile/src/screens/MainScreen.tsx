@@ -86,6 +86,10 @@ export default function MainScreen({
   }
 
   function handleConnectionLost(message?: string) {
+    console.error("[pairing] connection lost", {
+      url: pairing.url,
+      message: message || t(language, "reconnect_default"),
+    });
     setLoading(false);
     setError(true);
     setErrorMessage(message || t(language, "reconnect_default"));
@@ -217,21 +221,35 @@ export default function MainScreen({
           source={{ uri: initialUrl }}
           style={styles.webview}
           injectedJavaScriptBeforeContentLoaded={localeInjection}
-          onLoadStart={() => setLoading(true)}
+          onLoadStart={() => {
+            console.warn("[pairing] webview load start", { url: initialUrl });
+            setLoading(true);
+          }}
           onLoadEnd={() => {
+            console.warn("[pairing] webview load end");
             didLoadSuccessfully.current = true;
             setLoading(false);
           }}
           onLoadProgress={({ nativeEvent }) => {
+            console.warn("[pairing] webview progress", {
+              progress: nativeEvent.progress,
+              url: nativeEvent.url,
+            });
             if (nativeEvent.progress >= 0.6) {
               didLoadSuccessfully.current = true;
               setLoading(false);
             }
           }}
           onError={() => {
+            console.error("[pairing] webview onError");
             handleConnectionLost();
           }}
           onHttpError={(e) => {
+            console.error("[pairing] webview http error", {
+              statusCode: e.nativeEvent.statusCode,
+              description: e.nativeEvent.description,
+              url: e.nativeEvent.url,
+            });
             if (e.nativeEvent.statusCode === 401) {
               Alert.alert(t(language, "auth_expired"), t(language, "auth_expired_desc"), [
                 { text: t(language, "confirm"), onPress: handleUnpair },

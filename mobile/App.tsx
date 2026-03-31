@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { StatusBar, View, StyleSheet, Text, ActivityIndicator, TouchableOpacity } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Alert, StatusBar, View, StyleSheet, Text, ActivityIndicator, TouchableOpacity } from "react-native";
 import { clearPairing, loadPairing, PairingData } from "./src/lib/storage";
 import { requestNotificationPermission } from "./src/lib/notifications";
 import { loadMobileLanguage, MobileLanguage, saveMobileLanguage, t } from "./src/lib/i18n";
+import { submitSharedCommand } from "./src/lib/commands";
+import { getPendingSharedText, subscribeToSharedText } from "./src/lib/shareIntent";
 import QRScanScreen from "./src/screens/QRScanScreen";
 import MainScreen from "./src/screens/MainScreen";
 import ManualPairScreen from "./src/screens/ManualPairScreen";
@@ -43,6 +45,8 @@ export default function App() {
   const [pairing, setPairing] = useState<PairingData | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [language, setLanguage] = useState<MobileLanguage>("ko");
+  const [queuedSharedText, setQueuedSharedText] = useState<string | null>(null);
+  const lastHandledSharedText = useRef<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -76,6 +80,50 @@ export default function App() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    getPendingSharedText().then((text) => {
+      if (!text) return;
+      setQueuedSharedText(text);
+    });
+
+    return subscribeToSharedText((text) => {
+      setQueuedSharedText(text);
+    });
+  }, []);
+
+  useEffect(() => {
+    async function handleSharedText() {
+      if (!queuedSharedText) return;
+      if (queuedSharedText === lastHandledSharedText.current) return;
+
+      if (!pairing) {
+        Alert.alert(t(language, "pair_with_pc"), t(language, "shared_command_pending"));
+        return;
+      }
+
+      lastHandledSharedText.current = queuedSharedText;
+      try {
+        const result = await submitSharedCommand(pairing, queuedSharedText);
+        console.warn("[share] command submitted", {
+          text: queuedSharedText,
+          taskId: result.taskId,
+          status: result.status,
+        });
+        Alert.alert("Sigorjob", t(language, "shared_command_received"));
+        setQueuedSharedText(null);
+      } catch (error: unknown) {
+        console.error("[share] command submit failed", error);
+        lastHandledSharedText.current = null;
+        Alert.alert(
+          t(language, "shared_command_failed"),
+          error instanceof Error ? error.message : t(language, "connection_failed")
+        );
+      }
+    }
+
+    handleSharedText();
+  }, [language, pairing, queuedSharedText]);
 
   async function handleLanguageChange(nextLanguage: MobileLanguage) {
     setLanguage(nextLanguage);

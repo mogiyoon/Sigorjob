@@ -20,22 +20,39 @@
 현재 구현된 주요 라우트:
 
 - `/command`
+- `/tasks`
 - `/task/{task_id}`
+- `/task/{task_id}/retry`
+- `/task/{task_id}/continue-ai`
+- `/task/{task_id}` `DELETE`
+- `/tasks/delete`
 - `/tools`
 - `/approvals`
 - `/approval/{task_id}`
 - `/schedule`
 - `/schedules`
+- `/schedule/{schedule_id}` `DELETE`
 - `/pair/data`
 - `/pair/status`
 - `/pair/rotate`
 - `/setup/status`
+- `/setup/connections`
+- `/setup/connections/{connection_id}`
+- `/setup/permissions`
+- `/setup/ai`
+- `/setup/ai/verify`
+- `/setup/tunnel`
 - `/setup/cloudflare`
+- `/setup/quick`
 - `/widget/summary`
+- `/mobile/notifications`
+- `/mobile/notifications/ack`
+- `/mobile/notifications/test`
 
 ### `intent/`
 
 - 규칙 테이블(`rules.yaml`) 기반 명령 매칭
+- 첫 Step에 대해 가벼운 AI preflight 점검 가능
 - 규칙 미매칭 시에만 `ai/agent.py` 호출
 - 실행 가능한 `Task`와 `Step` 목록 생성
 - 단순 위험도 평가 기반 승인 필요 여부 계산
@@ -48,6 +65,8 @@
 - Task 결과 저장
 - 실행 로그 저장
 - 결과 요약 호출
+- 마지막 결과에 대한 AI postflight 점검
+- 약한 최종 결과를 AI continuation으로 handoff 가능
 - 승인 필요 상태 저장과 승인 후 재실행
 
 현재는 단순 순차 실행기이며, Task Graph와 재시도는 아직 없다.
@@ -55,6 +74,7 @@
 ### `ai/`
 
 - `agent.py`: 규칙으로 처리되지 않는 요청의 실행 계획 생성
+- `reviewer.py`: 처음/마지막 단계 점검과 품질 리뷰 담당
 - `summarizer.py`: 실행 결과를 짧은 자연어로 요약
 
 중요한 점:
@@ -100,6 +120,7 @@
 - `cloudflared` 프로세스 시작/종료
 - 터널 URL 파싱
 - 페어링 토큰 생성/검증/회전
+- 패키징된 데스크톱 앱에서는 런타임에 선택된 로컬 백엔드 주소를 따라감
 
 ### `cli.py`
 
@@ -113,7 +134,9 @@
 ```text
 gateway -> intent -> orchestrator -> tools
 intent -> ai
+intent -> ai.reviewer
 orchestrator -> ai.summarizer
+orchestrator -> ai.reviewer
 orchestrator -> db
 gateway -> tunnel
 gateway -> config
