@@ -14,6 +14,7 @@ AI는 꼭 필요한 판단 지점에서만 개입한다.
 - 로컬 PC가 실제 실행 주체
 - 모바일은 얇은 WebView 리모컨
 - GUI 없는 서버에서는 CLI로 같은 백엔드를 재사용
+- AI는 전체 파이프라인을 대체하기보다 처음과 마지막을 가볍게 점검하는 방향
 
 ## 현재 구현
 
@@ -22,7 +23,7 @@ AI는 꼭 필요한 판단 지점에서만 개입한다.
 현재 구현된 실행 표면은 3개다.
 
 1. 데스크톱 앱
-   Tauri가 release 환경에서 Python backend sidecar를 자동 시작한다.
+   Tauri가 release 환경에서 Python backend sidecar를 자동 시작하고, 실행 시 사용 가능한 로컬 포트를 자동 선택한다.
 2. 웹 UI
    Next.js 정적 결과물을 FastAPI가 서빙한다.
 3. CLI
@@ -36,6 +37,8 @@ Client (Web / Mobile WebView / CLI)
 Gateway (FastAPI, auth, local-only route guard, static serving)
     ->
 Intent Router (rules first, AI fallback only when needed)
+    ->
+AI review layer (처음/마지막 점검, AI continuation)
     ->
 Orchestrator (task status, approval-required state, sequential tool execution)
     ->
@@ -52,8 +55,10 @@ Local resources (SQLite / filesystem / cloudflared / external HTTP)
 사용자 요청
   -> Intent Router
   -> 규칙 매칭 성공 시 바로 Step 생성
+  -> 필요 시 AI가 첫 Step을 가볍게 점검
   -> Orchestrator
   -> Tool 실행
+  -> 필요 시 AI가 마지막 결과를 가볍게 점검
   -> 결과 저장 및 요약
 ```
 
@@ -66,6 +71,16 @@ Local resources (SQLite / filesystem / cloudflared / external HTTP)
   -> Orchestrator
   -> Tool 실행
   -> 결과 저장 및 요약
+```
+
+#### 마지막 결과가 약할 때 AI takeover
+
+```text
+사용자 요청
+  -> 비AI Step 먼저 실행
+  -> AI가 마지막 결과가 부족하다고 판단
+  -> AI continuation이 다음 Step 생성
+  -> Orchestrator가 이어서 실행
 ```
 
 #### 승인 필요 명령
@@ -134,6 +149,8 @@ PC 로컬 UI
 - 상태 저장
 - 승인 필요 상태 저장
 - 승인 후 재실행
+- 마지막 결과에 대한 AI 점검
+- 필요 시 AI continuation으로 자연스럽게 handoff
 - 결과 요약
 
 ### Tools
@@ -143,6 +160,10 @@ PC 로컬 UI
 - `crawler`
 - `time`
 - `system_info`
+
+참고:
+
+- 낮은 수준의 Tool 종류는 적어도, 플러그인이 캘린더, 커뮤니케이션, 길찾기, 리마인더, 날씨, 쇼핑 같은 요청을 이미 꽤 많이 덮고 있다
 
 ### Scheduler
 
