@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from orchestrator.task import Step, Task
 from orchestrator import result_quality
 from tools import registry
+from ai import agent as ai_agent
 from ai import summarizer
 from ai import reviewer as ai_reviewer
 from db.models import ApprovalRequest, ApprovalStatus, Task as TaskModel, TaskLog, TaskStatus
@@ -65,6 +66,7 @@ async def _run_without_persistence(task: Task) -> Task:
 
 async def _execute_steps(task: Task, session=None) -> None:
     review_budget = 1
+    postflight_budget = 1
     step_index = 0
     while step_index < len(task.steps):
         i = step_index
@@ -95,6 +97,45 @@ async def _execute_steps(task: Task, session=None) -> None:
             task.error = error
             task.summary = str(error)
             return
+
+        if _should_postflight_review(step, result) and postflight_budget > 0:
+            postflight_budget -= 1
+            review = await ai_reviewer.postflight(
+                task.command,
+                {
+                    "tool": step.tool,
+                    "params": step.params,
+                    "description": step.description,
+                },
+                result,
+            )
+            if review and not review.get("acceptable", True):
+                continuation_steps = await _build_ai_takeover_steps(task)
+                if continuation_steps:
+                    task.steps[step_index + 1:step_index + 1] = continuation_steps
+                    if session is not None:
+                        await _log(task.id, "warning", f"step {i+1} AI postflight handed off to AI continuation", session)
+                    step_index += 1
+                    continue
+
+                retry_step = review.get("retry_step") or {}
+                if retry_step.get("tool") and isinstance(retry_step.get("params"), dict):
+                    inserted = Step(
+                        tool=retry_step["tool"],
+                        params=retry_step["params"],
+                        description=retry_step.get("description", "ai_postflight_retry"),
+                    )
+                    task.steps.insert(step_index + 1, inserted)
+                    if session is not None:
+                        await _log(task.id, "warning", f"step {i+1} AI postflight requested retry: {inserted.description}", session)
+                    step_index += 1
+                    continue
+                if session is not None:
+                    await _log(task.id, "error", f"step {i+1} AI postflight rejected result: {review.get('reason', 'result mismatch')}", session)
+                task.status = "failed"
+                task.error = str(review.get("reason") or "AI postflight rejected the final action.")
+                task.summary = task.error
+                return
 
         if quality.needs_ai_review and review_budget > 0:
             review_budget -= 1
@@ -213,3 +254,36 @@ def deserialize_task(task_id: str, command: str, plan_json: str | None) -> Task:
         for step in steps_data
     ]
     return task
+
+
+def _should_postflight_review(step: Step, result: dict) -> bool:
+    if step.tool in {"browser", "crawler"}:
+        return True
+    data = result.get("data") or {}
+    return isinstance(data, dict) and data.get("action") == "open_url"
+
+
+async def _build_ai_takeover_steps(task: Task) -> list[Step]:
+    continuation = await ai_agent.continue_task(
+        task.command,
+        {
+            "summary": task.summary,
+            "results": task.results,
+        },
+    )
+    if not continuation:
+        return []
+
+    steps = continuation.get("steps", [])
+    if not isinstance(steps, list):
+        return []
+
+    return [
+        Step(
+            tool=step["tool"],
+            params=step["params"],
+            description=step.get("description", "ai_takeover"),
+        )
+        for step in steps
+        if step.get("tool") and isinstance(step.get("params"), dict)
+    ]

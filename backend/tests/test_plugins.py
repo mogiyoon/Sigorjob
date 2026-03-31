@@ -65,6 +65,12 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
         task = await intent_router.route("제주도 항공권 찾아줘")
         self.assertEqual(task.steps[0].tool, "travel_helper")
 
+    async def test_email_send_intent_with_address_and_message_routes_to_browser(self):
+        task = await intent_router.route("vmcf@naver.com으로 안녕이라는 메시지 보여줘")
+        self.assertEqual(task.steps[0].tool, "browser")
+        self.assertIn("mailto:vmcf@naver.com", task.steps[0].params["url"])
+        self.assertIn("body=%EC%95%88%EB%85%95", task.steps[0].params["url"])
+
 
 if __name__ == "__main__":
     unittest.main()
