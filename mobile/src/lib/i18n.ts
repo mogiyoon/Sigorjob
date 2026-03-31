@@ -49,6 +49,9 @@ const messages = {
     disconnect_desc: "PC와의 연결을 해제하고 다시 QR 코드를 스캔해야 합니다.",
     cancel: "취소",
     connection_tools: "연결",
+    shared_command_received: "공유한 내용을 바로 실행했습니다.",
+    shared_command_pending: "PC와 연결되면 공유한 내용을 바로 실행합니다.",
+    shared_command_failed: "공유한 내용을 실행하지 못했습니다.",
   },
   en: {
     app_starting: "Starting Sigorjob...",
@@ -94,6 +97,9 @@ const messages = {
     disconnect_desc: "This will disconnect from your PC and require scanning the QR code again.",
     cancel: "Cancel",
     connection_tools: "Connect",
+    shared_command_received: "The shared text was sent for execution.",
+    shared_command_pending: "The shared text will run as soon as your PC is connected.",
+    shared_command_failed: "Unable to run the shared text.",
   },
 } as const;
 
