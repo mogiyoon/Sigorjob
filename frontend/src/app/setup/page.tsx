@@ -8,6 +8,7 @@ import {
   disconnectTunnel,
   getSetupStatus,
   localApiFetch,
+  restartQuickTunnel,
   sendTestMobileNotification,
   type ConnectionItem,
   type PermissionItem,
@@ -49,6 +50,7 @@ export default function SetupPage() {
   const [mobileMessage, setMobileMessage] = useState("");
   const [notificationTesting, setNotificationTesting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [restartingQuickTunnel, setRestartingQuickTunnel] = useState(false);
   const [showAiErrorDetails, setShowAiErrorDetails] = useState(false);
 
   const getConnectionBadgeClass = (connection: ConnectionItem) => {
@@ -114,7 +116,14 @@ export default function SetupPage() {
 
   const refreshStatus = async () => {
     try {
+      console.warn("[mobile-setup] refresh status start");
       const data = (await getSetupStatus()) as SetupStatus;
+      console.warn("[mobile-setup] refresh status success", {
+        tunnelMode: data.tunnel_mode,
+        tunnelActive: data.tunnel_active,
+        tunnelUrl: data.tunnel_url,
+        tunnelError: data.tunnel_error,
+      });
       setStatus(data);
       if (data.tunnel_mode) {
         setSelectedMode(data.tunnel_mode);
@@ -123,8 +132,8 @@ export default function SetupPage() {
         setTunnelUrl(data.tunnel_url);
         setStep("done");
       }
-    } catch {
-      // ignore initial status fetch failures
+    } catch (error) {
+      console.error("[mobile-setup] refresh status failed", error);
     }
   };
 
@@ -137,6 +146,11 @@ export default function SetupPage() {
   }, []);
 
   const handleConnect = async () => {
+    console.warn("[mobile-setup] connect button clicked", {
+      selectedMode,
+      step,
+      hasToken: Boolean(token.trim()),
+    });
     if (selectedMode === "cloudflare" && !token.trim()) return;
     setStep("connecting");
     setError("");
@@ -151,7 +165,13 @@ export default function SetupPage() {
               method: "POST",
               body: JSON.stringify({ cloudflare_tunnel_token: token.trim() }),
             });
+      console.warn("[mobile-setup] connect response received", {
+        selectedMode,
+        status: res.status,
+        ok: res.ok,
+      });
       const data = await res.json();
+      console.warn("[mobile-setup] connect payload", data);
       if (data.success) {
         setTunnelUrl(data.tunnel_url);
         setStep("done");
@@ -159,7 +179,8 @@ export default function SetupPage() {
         setError(data.error ?? t("connect_failed", "Connection failed. Check your settings and try again."));
         setStep(selectedMode === "cloudflare" ? "token" : "intro");
       }
-    } catch {
+    } catch (error) {
+      console.error("[mobile-setup] connect failed", error);
       setError(t("backend_unreachable", "Cannot reach the backend. Make sure the app is running."));
       setStep(selectedMode === "cloudflare" ? "token" : "intro");
     }
@@ -259,11 +280,17 @@ export default function SetupPage() {
   };
 
   const handleDisconnectTunnel = async () => {
+    console.warn("[mobile-setup] disconnect button clicked", {
+      tunnelUrl,
+      tunnelMode: status?.tunnel_mode,
+      tunnelActive: status?.tunnel_active,
+    });
     setDisconnecting(true);
     setMobileMessage("");
     setError("");
     try {
       await disconnectTunnel();
+      console.warn("[mobile-setup] disconnect success");
       setTunnelUrl("");
       setStatus((current) =>
         current
@@ -280,10 +307,41 @@ export default function SetupPage() {
       setStep("intro");
       setMobileMessage(t("mobile_disconnected_message", "Phone connection has been turned off."));
       await refreshStatus();
-    } catch {
+    } catch (error) {
+      console.error("[mobile-setup] disconnect failed", error);
       setMobileMessage(t("mobile_disconnect_failed", "Could not turn off the phone connection."));
     } finally {
       setDisconnecting(false);
+    }
+  };
+
+  const handleRestartQuickTunnel = async () => {
+    console.warn("[mobile-setup] quick tunnel button clicked", {
+      tunnelUrl,
+      tunnelMode: status?.tunnel_mode,
+      tunnelActive: status?.tunnel_active,
+      step,
+    });
+    setRestartingQuickTunnel(true);
+    setError("");
+    setMobileMessage("");
+    try {
+      const data = await restartQuickTunnel();
+      console.warn("[mobile-setup] quick tunnel payload", data);
+      if (data.success) {
+        setTunnelUrl(data.tunnel_url ?? "");
+        setStep("done");
+        setMobileMessage(t("quick_tunnel_restarted"));
+        await refreshStatus();
+      } else {
+        setMobileMessage(data.error ?? t("quick_tunnel_restart_failed"));
+      }
+    } catch (error) {
+      console.error("[mobile-setup] quick tunnel failed", error);
+      setMobileMessage(t("quick_tunnel_restart_failed"));
+    } finally {
+      console.warn("[mobile-setup] quick tunnel finished");
+      setRestartingQuickTunnel(false);
     }
   };
 
@@ -584,54 +642,6 @@ export default function SetupPage() {
     </div>
   );
 
-  const mobileGuidanceCard = (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3 shadow-sm">
-      <div className="space-y-1">
-        <h2 className="font-semibold text-gray-800">
-          {t("connection_guidance", "Shortcuts")}
-        </h2>
-        <p className="text-sm text-gray-600">
-          {t("connection_guidance_short_desc", "You can turn this on later and start with local-only use first.")}
-        </p>
-      </div>
-      <button
-        onClick={() => router.push("/")}
-        className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-      >
-        {t("use_local_only_later")}
-      </button>
-    </div>
-  );
-
-  const mobileOperationsCard = (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3 shadow-sm">
-      <div className="space-y-1">
-        <p className="text-sm font-semibold text-gray-900">
-          {t("mobile_operations", "Mobile actions")}
-        </p>
-        <p className="text-xs text-gray-600 leading-5">
-          {t("mobile_operations_short_desc", "Send a test notification or disconnect and start again.")}
-        </p>
-      </div>
-      <div className="flex gap-2">
-        <button
-          onClick={handleTestNotification}
-          disabled={notificationTesting}
-          className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
-        >
-          {notificationTesting ? t("sending", "Sending...") : t("send_test_notification", "Send test notification")}
-        </button>
-        <button
-          onClick={handleDisconnectTunnel}
-          disabled={disconnecting}
-          className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
-        >
-          {disconnecting ? t("disconnecting_short", "Disconnecting...") : t("disconnect_mobile_connection", "Disconnect phone connection")}
-        </button>
-      </div>
-    </div>
-  );
-
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-10">
       <div className="mx-auto w-full max-w-5xl space-y-6">
@@ -755,6 +765,15 @@ export default function SetupPage() {
                     >
                       {selectedMode === "quick" ? t("start_quick_tunnel") : t("setup_named_tunnel")}
                     </button>
+                    {status?.tunnel_mode === "quick" && (
+                      <button
+                        onClick={handleRestartQuickTunnel}
+                        disabled={restartingQuickTunnel || status?.cloudflared_installed === false}
+                        className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 disabled:opacity-50"
+                      >
+                        {restartingQuickTunnel ? t("restarting_quick_tunnel") : t("restart_quick_tunnel")}
+                      </button>
+                    )}
                     <a
                       href="https://one.dash.cloudflare.com/"
                       target="_blank"
@@ -764,8 +783,33 @@ export default function SetupPage() {
                       {t("open_cloudflare_dashboard")}
                     </a>
                   </div>
+                  <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {t("mobile_operations", "Mobile actions")}
+                      </p>
+                      <p className="text-xs text-gray-600 leading-5">
+                        {t("mobile_operations_short_desc", "Send a test notification or disconnect and start again.")}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleTestNotification}
+                        disabled={notificationTesting}
+                        className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
+                      >
+                        {notificationTesting ? t("sending", "Sending...") : t("send_test_notification", "Send test notification")}
+                      </button>
+                      <button
+                        onClick={handleDisconnectTunnel}
+                        disabled={disconnecting}
+                        className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+                      >
+                        {disconnecting ? t("disconnecting_short", "Disconnecting...") : t("disconnect_mobile_connection", "Disconnect phone connection")}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                {mobileGuidanceCard}
               </div>
 
               <div className="space-y-6">
@@ -845,19 +889,52 @@ export default function SetupPage() {
               <div className="text-4xl">✓</div>
               <h1 className="text-xl font-bold text-gray-900">{t("connection_complete")}</h1>
             </div>
-            <div className="bg-green-50 border border-green-200 rounded-2xl p-4 space-y-2">
-              <p className="text-xs text-green-600">
-                {selectedMode === "quick" ? "Quick Tunnel" : t("named_tunnel")}
-              </p>
-              <p className="text-sm text-green-700 font-medium">{t("tunnel_url")}</p>
-              <p className="font-mono text-sm text-green-800 break-all">{tunnelUrl}</p>
-              <p className="text-xs text-green-600">
-                {t("open_remotely_desc")}
-              </p>
-            </div>
             <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
               <div className="space-y-6">
-                {mobileOperationsCard}
+                <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                  <div className="space-y-1">
+                    <h2 className="font-semibold text-gray-900">{t("mobile_connection", "Mobile Connect")}</h2>
+                    <p className="text-sm text-gray-600">
+                      {t("mobile_setup_short_desc", "Choose a connection type and start right away.")}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-green-100 bg-green-50 p-4 space-y-2">
+                    <p className="text-xs text-green-600">
+                      {selectedMode === "quick" ? "Quick Tunnel" : t("named_tunnel")}
+                    </p>
+                    <p className="text-sm text-green-700 font-medium">{t("tunnel_url")}</p>
+                    <p className="font-mono text-sm text-green-800 break-all">{tunnelUrl}</p>
+                    <p className="text-xs text-green-600">
+                      {t("open_remotely_desc")}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {t("mobile_operations", "Mobile actions")}
+                      </p>
+                      <p className="text-xs text-gray-600 leading-5">
+                        {t("mobile_operations_short_desc", "Send a test notification or disconnect and start again.")}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleTestNotification}
+                        disabled={notificationTesting}
+                        className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
+                      >
+                        {notificationTesting ? t("sending", "Sending...") : t("send_test_notification", "Send test notification")}
+                      </button>
+                      <button
+                        onClick={handleDisconnectTunnel}
+                        disabled={disconnecting}
+                        className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+                      >
+                        {disconnecting ? t("disconnecting_short", "Disconnecting...") : t("disconnect_mobile_connection", "Disconnect phone connection")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="space-y-6">
                 {aiSettingsCard}

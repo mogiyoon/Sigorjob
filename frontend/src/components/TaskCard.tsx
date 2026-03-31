@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { TaskResponse } from "@/lib/api";
 import { useLanguage } from "@/components/LanguageProvider";
+import { openExternalUrl } from "@/lib/external";
 
 interface Props {
   task: TaskResponse;
@@ -40,6 +41,33 @@ export default function TaskCard({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [aiPlanOpen, setAiPlanOpen] = useState(false);
 
+  const resultItems = Array.isArray(task.result?.results)
+    ? (
+        task.result.results as Array<{
+          success?: boolean;
+          data?: {
+            text?: string;
+            url?: string;
+            title?: string;
+            action?: string;
+            links?: { title?: string; url?: string }[];
+            schedule_id?: string;
+            cron?: string;
+            command?: string;
+            source_name?: string;
+            source_url?: string;
+            name?: string;
+            draft_type?: string;
+            recipient?: string;
+            subject?: string;
+            body?: string;
+            ai_enhanced?: boolean;
+          };
+          error?: string;
+        }>
+      )
+    : [];
+
   const statusLabel: Record<TaskResponse["status"], string> = {
     pending: t("pending"),
     running: t("running_status"),
@@ -49,55 +77,40 @@ export default function TaskCard({
     cancelled: t("cancelled"),
   };
 
-  const firstResult = task.result?.results?.[0] as
-    | {
-        success?: boolean;
-        data?: {
-          text?: string;
-          url?: string;
-          title?: string;
-          action?: string;
-          links?: { title?: string; url?: string }[];
-          schedule_id?: string;
-          cron?: string;
-          command?: string;
-          source_name?: string;
-          source_url?: string;
-          name?: string;
-          draft_type?: string;
-          recipient?: string;
-          subject?: string;
-          body?: string;
-          ai_enhanced?: boolean;
-        };
-        error?: string;
-      }
-    | undefined;
+  const primaryResult =
+    [...resultItems].reverse().find((result) => result.data?.action === "open_url")
+    ?? resultItems[0];
 
-  const crawlPreview = firstResult?.data?.text?.slice(0, 280);
-  const crawlUrl = firstResult?.data?.url;
-  const openActionUrl = firstResult?.data?.action === "open_url" ? firstResult?.data?.url : null;
-  const openActionTitle = firstResult?.data?.title || t("open_link");
+  const crawlPreview = primaryResult?.data?.text?.slice(0, 280);
+  const crawlUrl = primaryResult?.data?.url;
+  const openActionUrl = primaryResult?.data?.action === "open_url" ? primaryResult?.data?.url : null;
+  const openActionTitle = primaryResult?.data?.title || t("open_link");
   const purchaseAssist =
-    firstResult?.data?.action === "open_url" &&
-    (firstResult?.data as { purchase_intent?: boolean } | undefined)?.purchase_intent
-      ? firstResult?.data
+    primaryResult?.data?.action === "open_url" &&
+    (primaryResult?.data as { purchase_intent?: boolean } | undefined)?.purchase_intent
+      ? primaryResult?.data
       : null;
   const scheduleResult =
-    firstResult?.data?.action === "schedule_created" || firstResult?.data?.action === "schedule_draft"
-      ? firstResult?.data
+    primaryResult?.data?.action === "schedule_created" || primaryResult?.data?.action === "schedule_draft"
+      ? primaryResult?.data
       : null;
   const draftResult =
-    firstResult?.data?.draft_type === "message" || firstResult?.data?.draft_type === "email"
-      ? firstResult?.data
+    primaryResult?.data?.draft_type === "message" || primaryResult?.data?.draft_type === "email"
+      ? primaryResult?.data
       : null;
-  const searchLinks = firstResult?.data?.links ?? [];
-  const errorMessage = firstResult?.error;
+  const searchLinks = primaryResult?.data?.links ?? [];
+  const errorMessage = primaryResult?.error;
   const aiContinuation = (
     task.result as {
+      original_summary?: string;
       ai_continuation?: { summary?: string; steps?: { tool?: string; description?: string }[] };
     } | null
   )?.ai_continuation;
+  const originalSummary = (
+    task.result as {
+      original_summary?: string;
+    } | null
+  )?.original_summary;
 
   const finishedAt = task.completed_at || task.created_at;
   const formattedFinishedAt = finishedAt
@@ -131,7 +144,14 @@ export default function TaskCard({
       )}
       {onDelete && (
         <button
-          onClick={() => onDelete(task.task_id)}
+          onClick={() => {
+            console.warn("[history] delete button clicked", {
+              taskId: task.task_id,
+              status: task.status,
+              deleting,
+            });
+            onDelete(task.task_id);
+          }}
           disabled={deleting}
           className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
         >
@@ -164,6 +184,12 @@ export default function TaskCard({
       <div className="space-y-2">
         {task.command && <p className="text-sm font-medium text-gray-900 break-words">{task.command}</p>}
         {task.result?.summary && <p className="text-sm leading-6 text-gray-600">{task.result.summary}</p>}
+        {originalSummary && originalSummary !== task.result?.summary && (
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs text-gray-500">{t("previous_result", "Previous result")}</p>
+            <p className="mt-1 text-sm leading-6 text-gray-700">{originalSummary}</p>
+          </div>
+        )}
       </div>
 
       {crawlUrl && (
@@ -178,14 +204,13 @@ export default function TaskCard({
       )}
 
       {openActionUrl && (
-        <a
-          href={openActionUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => void openExternalUrl(openActionUrl)}
           className="inline-flex items-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           {openActionTitle}
-        </a>
+        </button>
       )}
 
       {purchaseAssist && (
@@ -294,6 +319,45 @@ export default function TaskCard({
         </button>
       )}
 
+      {resultItems.length > 1 && (
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-medium text-gray-600">{t("execution_history", "Execution history")}</p>
+            <span className="text-xs text-gray-500">{resultItems.length}</span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {resultItems.map((result, index) => {
+              const data = result.data ?? {};
+              const label =
+                data.title
+                || data.name
+                || data.command
+                || data.url
+                || result.error
+                || t("step");
+
+              return (
+                <div key={`result-${task.task_id}-${index}`} className="rounded-xl bg-white p-3">
+                  <p className="text-xs font-medium text-gray-500">
+                    {t("step")} {index + 1}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-900 break-words">{label}</p>
+                  {data.url && (
+                    <button
+                      type="button"
+                      onClick={() => data.url && void openExternalUrl(data.url)}
+                      className="mt-2 block text-xs text-blue-600 break-all"
+                    >
+                      {data.url}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {searchLinks.length > 0 && (
         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
@@ -302,18 +366,17 @@ export default function TaskCard({
           </div>
           <div className="space-y-2">
             {searchLinks.map((link, index) => (
-              <a
+              <button
+                type="button"
                 key={`${link.url}-${index}`}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
+                onClick={() => link.url && void openExternalUrl(link.url)}
                 className="block rounded-xl bg-white px-3 py-3 hover:bg-blue-100"
               >
                 <p className="text-sm font-medium text-blue-900 break-words">
                   {link.title || link.url}
                 </p>
                 <p className="mt-1 text-xs text-blue-600 break-all">{link.url}</p>
-              </a>
+              </button>
             ))}
           </div>
         </div>
