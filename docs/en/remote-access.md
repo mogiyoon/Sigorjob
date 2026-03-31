@@ -11,6 +11,11 @@ Remote web access and mobile pairing require:
 - `cloudflared` available to the runtime
 - either Quick Tunnel mode or a configured Cloudflare tunnel token
 
+In packaged desktop builds:
+
+- the backend sidecar now binds to an automatically selected local port
+- the tunnel layer follows that runtime port instead of assuming `127.0.0.1:8000`
+
 Normal product direction:
 
 - packaged desktop builds bundle `cloudflared` for end users
@@ -90,6 +95,7 @@ You can also pass a different local base URL:
 5. Wait for the tunnel URL to appear.
 6. Open the local pairing page.
 7. Copy the pairing token or complete mobile pairing.
+8. If Quick Tunnel was restarted, rescan the latest QR because the temporary URL may have changed.
 
 ## Remote Modes
 
@@ -133,6 +139,12 @@ You can also pass a different local base URL:
 
 - The local machine has a tunnel URL.
 - The mobile app can connect with the pairing token.
+
+### Shared text from mobile
+
+- Android can now receive shared text directly into the mobile app and send it to the paired desktop backend.
+- iOS is moving toward the same behavior through a Share Extension plus app handoff flow.
+- This still depends on the paired desktop host being reachable through the current tunnel URL.
 
 ## Security Notes
 

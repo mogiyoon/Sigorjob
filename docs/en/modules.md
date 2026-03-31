@@ -21,22 +21,39 @@
 Currently implemented main routes:
 
 - `/command`
+- `/tasks`
 - `/task/{task_id}`
+- `/task/{task_id}/retry`
+- `/task/{task_id}/continue-ai`
+- `/task/{task_id}` `DELETE`
+- `/tasks/delete`
 - `/tools`
 - `/approvals`
 - `/approval/{task_id}`
 - `/schedule`
 - `/schedules`
+- `/schedule/{schedule_id}` `DELETE`
 - `/pair/data`
 - `/pair/status`
 - `/pair/rotate`
 - `/setup/status`
+- `/setup/connections`
+- `/setup/connections/{connection_id}`
+- `/setup/permissions`
+- `/setup/ai`
+- `/setup/ai/verify`
+- `/setup/tunnel`
 - `/setup/cloudflare`
+- `/setup/quick`
 - `/widget/summary`
+- `/mobile/notifications`
+- `/mobile/notifications/ack`
+- `/mobile/notifications/test`
 
 ### `intent/`
 
 - Matches commands with YAML rules first
+- Can run a lightweight AI preflight check on the proposed first step
 - Calls `ai/agent.py` only when no rule matches
 - Produces executable `Task` and `Step` objects
 - Computes simple risk levels for approval gating
@@ -49,6 +66,8 @@ Currently implemented main routes:
 - Persists task results
 - Persists execution logs
 - Calls the summarizer
+- Can run AI postflight validation on a final result
+- Can hand off a weak final result into AI continuation
 - Stores approval-required state and reruns approved tasks
 
 The current implementation is a sequential executor. Task graphs and retry policies are not implemented yet.
@@ -56,6 +75,7 @@ The current implementation is a sequential executor. Task graphs and retry polic
 ### `ai/`
 
 - `agent.py`: generates execution plans for requests that rules cannot handle
+- `reviewer.py`: handles lightweight preflight/postflight checks and quality review
 - `summarizer.py`: produces short natural-language summaries of execution results
 
 Important behavior:
@@ -101,6 +121,7 @@ Examples of tools planned but not yet implemented:
 - Starts and stops `cloudflared`
 - Extracts tunnel URLs
 - Creates, verifies, and rotates pairing tokens
+- Follows the runtime-selected local backend URL in packaged desktop builds
 - Acts as an optional runtime dependency for remote/mobile access rather than a requirement for local-only usage
 
 ### `cli.py`
@@ -115,7 +136,9 @@ Examples of tools planned but not yet implemented:
 ```text
 gateway -> intent -> orchestrator -> tools
 intent -> ai
+intent -> ai.reviewer
 orchestrator -> ai.summarizer
+orchestrator -> ai.reviewer
 orchestrator -> db
 gateway -> tunnel
 gateway -> config

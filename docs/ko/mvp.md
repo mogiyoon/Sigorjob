@@ -16,11 +16,13 @@
 
 - 명령 입력 -> Task 생성 -> Tool 실행 -> 결과 조회
 - 규칙 기반 라우팅 + AI 폴백
+- 비AI 경로 앞/뒤의 얇은 AI 점검
 - `file`, `shell`, `crawler`, `time`, `system_info` Tool
 - 승인 필요 작업 분기
 - cron 기반 스케줄 등록
 - Cloudflare Tunnel 기반 원격 연결
 - 모바일 WebView 래퍼
+- Android 공유 버튼으로 들어온 텍스트 실행
 - GUI 없는 서버용 CLI
 - 모바일 연결, AI 연결, Gmail, Google Calendar, 향후 MCP 도구를 같은 방식으로 다루기 위한 공통 연결 모델 기반
 
@@ -39,6 +41,7 @@
 - 규칙에 정의된 명령은 AI 없이 실행된다
 - 모호한 명령은 AI가 해석 후 실행될 수 있다
 - 비AI가 놓친 작업은 AI가 이어서 처리할 수 있다
+- 비AI 최종 결과가 약하면 AI continuation으로 다시 이어갈 수 있다
 - 위험한 작업은 승인 또는 차단 경로로 분기된다
 - 실행 결과가 DB에 기록된다
 - 프론트에서 명령 입력과 결과 확인이 가능하다

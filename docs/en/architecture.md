@@ -15,6 +15,7 @@ Core direction:
 - mobile acts as a thin WebView-based remote control
 - headless servers reuse the same backend through CLI mode
 - if non-AI logic misses, AI should still be able to continue the task instead of falling back to generic search-only behavior
+- AI should also be able to lightly validate the first and last action without owning the whole pipeline
 - external services should be represented through one shared connection and capability model
 
 Practical runtime boundary:
@@ -32,7 +33,7 @@ Practical runtime boundary:
 There are currently three main runtime surfaces:
 
 1. Desktop app
-   Tauri starts the Python backend sidecar automatically in release builds.
+   Tauri starts the Python backend sidecar automatically in release builds and now picks an available local port at runtime.
 2. Web UI
    FastAPI serves the exported Next.js frontend.
 3. CLI
@@ -46,6 +47,8 @@ Client (Web / Mobile WebView / CLI)
 Gateway (FastAPI, auth, local-only route guard, static serving)
     ->
 Intent Router (rules first, AI fallback only when needed)
+    ->
+AI review layer (light preflight/postflight validation and continuation)
     ->
 Connection / Capability Registry (mobile, AI, Gmail, Calendar, future MCP tools)
     ->
@@ -64,8 +67,10 @@ Local resources (SQLite / filesystem / cloudflared / external HTTP)
 User request
   -> Intent Router
   -> rule match generates steps
+  -> optional AI preflight sanity check
   -> Orchestrator
   -> tool execution
+  -> optional AI postflight sanity check
   -> persistence and summary
 ```
 
@@ -78,6 +83,16 @@ User request
   -> Orchestrator
   -> tool execution
   -> persistence and summary
+```
+
+#### AI takeover after a weak final result
+
+```text
+User request
+  -> non-AI step runs first
+  -> AI postflight decides the result is not good enough
+  -> AI continuation produces the next steps
+  -> Orchestrator keeps executing from there
 ```
 
 #### Approval-required command
@@ -127,6 +142,15 @@ Local PC UI
   -> mobile WebView loads the remote UI
 ```
 
+### Mobile share-to-app flow
+
+```text
+Shared text from another mobile app
+  -> mobile app receives it
+  -> paired desktop backend gets /command
+  -> normal router/orchestrator pipeline runs
+```
+
 ## Current Key Components
 
 ### Gateway
@@ -139,6 +163,7 @@ Local PC UI
 
 - YAML-rule-based matching
 - AI fallback only when rules fail
+- optional AI preflight for first-step sanity checking
 - risk annotation for steps
 
 ### Connection / Capability Registry
@@ -154,6 +179,8 @@ Local PC UI
 - state persistence
 - approval-required persistence
 - rerun after approval
+- AI postflight result checking
+- AI continuation handoff when the final non-AI result is judged insufficient
 - result summarization
 
 ### Tools
@@ -163,6 +190,10 @@ Local PC UI
 - `crawler`
 - `time`
 - `system_info`
+
+Note:
+
+- helper plugins already cover several calendar, communication, route, reminder, weather, travel, and shopping-style requests even if the low-level tool list above stays small
 
 ### Scheduler
 
@@ -208,6 +239,7 @@ The following directions are intentionally planned, but not fully implemented in
 
 - actual mobile widget implementation
 - richer approval and schedule UI
+- more Tauri-safe handling for external links, clipboard, and other browser-assumed behaviors
 - stronger open-source onboarding docs and operating guides
 
 ### Authentication evolution
