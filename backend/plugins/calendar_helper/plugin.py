@@ -62,7 +62,10 @@ def _parse_calendar_request(text: str) -> dict:
 def _extract_time_range(text: str) -> tuple[datetime, datetime]:
     now = datetime.now(KST)
     base_date = now.date()
-    if "내일" in text:
+    explicit_date = _extract_explicit_date(text, now)
+    if explicit_date is not None:
+        base_date = explicit_date
+    elif "내일" in text:
         base_date = (now + timedelta(days=1)).date()
     elif "모레" in text:
         base_date = (now + timedelta(days=2)).date()
@@ -91,8 +94,23 @@ def _extract_time_range(text: str) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _extract_explicit_date(text: str, now: datetime):
+    match = re.search(r"(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일", text)
+    if not match:
+        return None
+
+    year = int(match.group(1) or now.year)
+    month = int(match.group(2))
+    day = int(match.group(3))
+    try:
+        return datetime(year=year, month=month, day=day, tzinfo=KST).date()
+    except ValueError:
+        return None
+
+
 def _extract_title(text: str) -> str:
     title = re.sub(r"(오늘|내일|모레)", "", text)
+    title = re.sub(r"(?:\d{4}년\s*)?\d{1,2}월\s*\d{1,2}일", "", title)
     title = re.sub(r"(오전|오후)?\s*\d{1,2}시(?:\s*\d{1,2}분)?", "", title)
     title = re.sub(r"\s+", " ", title).strip(" -")
     return title or "새 일정"
