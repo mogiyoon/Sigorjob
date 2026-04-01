@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select
 
 from db.session import get_session
-from db.models import ApprovalRequest, Task as TaskModel, TaskLog, TaskStatus
+from db.models import ApprovalRequest, Task as TaskModel, TaskLog, TaskStatus, TaskTraceEvent
 from ai import agent as ai_agent
 from intent import router as intent_router
 from orchestrator import engine as orchestrator
 from orchestrator.task import Step, Task
+from debug_trace import record_task_trace
 
 router = APIRouter()
 
@@ -35,6 +36,10 @@ class TaskResponse(BaseModel):
     completed_at: str | None = None
 
 
+class TaskTraceResponse(BaseModel):
+    trace: list[dict]
+
+
 def _row_to_response(row: TaskModel) -> TaskResponse:
     result_data = json.loads(row.result) if row.result else None
     return TaskResponse(
@@ -49,27 +54,74 @@ def _row_to_response(row: TaskModel) -> TaskResponse:
 
 @router.post("/command", response_model=TaskResponse)
 async def command(req: CommandRequest):
-    task = await intent_router.route(req.text)
+    task = await intent_router.route(req.text, req.context)
+    await record_task_trace(
+        task.id,
+        stage="command",
+        event="request_received",
+        status=task.status,
+        detail={
+            "command_length": len(req.text or ""),
+            "has_context": bool(req.context),
+            "context_keys": sorted(req.context.keys()) if isinstance(req.context, dict) else [],
+        },
+    )
+
+    if task.status == "needs_clarification":
+        task.completed_at = datetime.now(timezone.utc)
+        await orchestrator.save_pending(task)
+        await record_task_trace(
+            task.id,
+            stage="command",
+            event="clarification_returned",
+            status="needs_clarification",
+            detail={"attempt": (task.result_data.get("clarification") or {}).get("attempt")},
+        )
+        return TaskResponse(
+            task_id=task.id,
+            command=task.command,
+            status="needs_clarification",
+            result={
+                "summary": task.summary,
+                "results": [],
+                **task.result_data,
+            },
+        )
 
     if not task.steps:
         task.status = "failed"
-        task.summary = "실행 가능한 작업을 찾지 못했습니다."
+        if not task.summary:
+            task.summary = "실행 가능한 작업을 찾지 못했습니다."
         task.results = []
         task.error = task.summary
         task.completed_at = datetime.now(timezone.utc)
         await orchestrator.save_pending(task)
+        await record_task_trace(
+            task.id,
+            stage="command",
+            event="no_executable_steps",
+            status="failed",
+            detail={"has_summary": bool(task.summary)},
+        )
         return TaskResponse(
             task_id=task.id,
-            command=req.text,
+            command=task.command or req.text,
             status="failed",
-            result={"summary": "실행 가능한 작업을 찾지 못했습니다.", "results": []},
+            result={"summary": task.summary, "results": [], **task.result_data},
         )
 
     if task.risk_level in {"medium", "high"}:
         await orchestrator.save_approval_request(task)
+        await record_task_trace(
+            task.id,
+            stage="command",
+            event="approval_required",
+            status="approval_required",
+            detail={"risk_level": task.risk_level, "step_count": len(task.steps)},
+        )
         return TaskResponse(
             task_id=task.id,
-            command=req.text,
+            command=task.command,
             status="approval_required",
             result={
                 "summary": task.approval_reason or "승인이 필요한 작업입니다.",
@@ -78,9 +130,16 @@ async def command(req: CommandRequest):
         )
 
     await orchestrator.save_pending(task)
+    await record_task_trace(
+        task.id,
+        stage="command",
+        event="task_queued",
+        status="pending",
+        detail={"risk_level": task.risk_level, "step_count": len(task.steps)},
+    )
     asyncio.create_task(orchestrator.run(task))
 
-    return TaskResponse(task_id=task.id, command=req.text, status="pending")
+    return TaskResponse(task_id=task.id, command=task.command, status="pending")
 
 
 @router.get("/tasks")
@@ -116,6 +175,30 @@ async def get_task(task_id: str, session: AsyncSession = Depends(get_session)):
     return _row_to_response(row)
 
 
+@router.get("/task/{task_id}/trace", response_model=TaskTraceResponse)
+async def get_task_trace(task_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(TaskTraceEvent)
+        .where(TaskTraceEvent.task_id == task_id)
+        .order_by(TaskTraceEvent.created_at.asc())
+    )
+    rows = result.scalars().all()
+    return {
+        "trace": [
+            {
+                "id": row.id,
+                "task_id": row.task_id,
+                "stage": row.stage,
+                "event": row.event,
+                "status": row.status,
+                "detail": json.loads(row.detail) if row.detail else None,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
+    }
+
+
 @router.post("/task/{task_id}/retry", response_model=TaskResponse)
 async def retry_task(task_id: str, session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(TaskModel).where(TaskModel.id == task_id))
@@ -125,23 +208,66 @@ async def retry_task(task_id: str, session: AsyncSession = Depends(get_session))
       raise HTTPException(status_code=404, detail="task not found")
 
     retry_task_plan = await intent_router.route(row.command)
+    await record_task_trace(
+        retry_task_plan.id,
+        stage="retry",
+        event="retry_requested",
+        status=retry_task_plan.status,
+        detail={"source_task_id": task_id, "command_length": len(row.command or "")},
+    )
+
+    if retry_task_plan.status == "needs_clarification":
+        retry_task_plan.completed_at = datetime.now(timezone.utc)
+        await orchestrator.save_pending(retry_task_plan)
+        await record_task_trace(
+            retry_task_plan.id,
+            stage="retry",
+            event="clarification_returned",
+            status="needs_clarification",
+            detail={"source_task_id": task_id},
+        )
+        return TaskResponse(
+            task_id=retry_task_plan.id,
+            command=retry_task_plan.command or row.command,
+            status="needs_clarification",
+            result={
+                "summary": retry_task_plan.summary,
+                "results": [],
+                **retry_task_plan.result_data,
+            },
+        )
 
     if not retry_task_plan.steps:
         retry_task_plan.status = "failed"
-        retry_task_plan.summary = "재실행 가능한 작업을 찾지 못했습니다."
+        if not retry_task_plan.summary:
+            retry_task_plan.summary = "재실행 가능한 작업을 찾지 못했습니다."
         retry_task_plan.results = []
         retry_task_plan.error = retry_task_plan.summary
         retry_task_plan.completed_at = datetime.now(timezone.utc)
         await orchestrator.save_pending(retry_task_plan)
+        await record_task_trace(
+            retry_task_plan.id,
+            stage="retry",
+            event="no_executable_steps",
+            status="failed",
+            detail={"source_task_id": task_id},
+        )
         return TaskResponse(
             task_id=retry_task_plan.id,
             command=row.command,
             status="failed",
-            result={"summary": "재실행 가능한 작업을 찾지 못했습니다.", "results": []},
+            result={"summary": retry_task_plan.summary, "results": [], **retry_task_plan.result_data},
         )
 
     if retry_task_plan.risk_level in {"medium", "high"}:
         await orchestrator.save_approval_request(retry_task_plan)
+        await record_task_trace(
+            retry_task_plan.id,
+            stage="retry",
+            event="approval_required",
+            status="approval_required",
+            detail={"source_task_id": task_id, "risk_level": retry_task_plan.risk_level},
+        )
         return TaskResponse(
             task_id=retry_task_plan.id,
             command=row.command,
@@ -153,6 +279,13 @@ async def retry_task(task_id: str, session: AsyncSession = Depends(get_session))
         )
 
     await orchestrator.save_pending(retry_task_plan)
+    await record_task_trace(
+        retry_task_plan.id,
+        stage="retry",
+        event="task_queued",
+        status="pending",
+        detail={"source_task_id": task_id, "step_count": len(retry_task_plan.steps)},
+    )
     asyncio.create_task(orchestrator.run(retry_task_plan))
     return TaskResponse(task_id=retry_task_plan.id, command=row.command, status="pending")
 
@@ -168,13 +301,20 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
     result_data = json.loads(row.result) if row.result else None
     if not result_data:
         raise HTTPException(status_code=400, detail="task result not found")
+    await record_task_trace(
+        task_id,
+        stage="continue_ai",
+        event="continue_requested",
+        status=row.status.value,
+        detail={"result_count": len(result_data.get("results") or [])},
+        session=session,
+    )
 
     first_result = (result_data.get("results") or [{}])[0]
     draft_data = (first_result.get("data") or {}) if isinstance(first_result, dict) else {}
     draft_type = draft_data.get("draft_type")
 
     if draft_type in {"email", "message"}:
-        existing_summary = result_data.get("summary")
         continued = await ai_agent.continue_draft(row.command, draft_data)
         if not continued:
             raise HTTPException(status_code=400, detail="ai continuation failed or AI is not available")
@@ -183,15 +323,14 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
         draft_data["body"] = continued.get("body", draft_data.get("body", ""))
         draft_data["ai_enhanced"] = True
         first_result["data"] = draft_data
-        if existing_summary and not result_data.get("original_summary"):
-            result_data["original_summary"] = existing_summary
+        result_data["summary"] = (
+            "AI가 초안을 이어서 다듬었습니다."
+            if draft_type == "email"
+            else "AI가 메시지 초안을 이어서 다듬었습니다."
+        )
         result_data["results"][0] = first_result
         result_data["ai_continuation"] = {
-            "summary": (
-                "AI가 초안을 이어서 다듬었습니다."
-                if draft_type == "email"
-                else "AI가 메시지 초안을 이어서 다듬었습니다."
-            ),
+            "summary": result_data["summary"],
             "steps": [
                 {
                     "description": "기존 초안을 읽고 제목과 본문을 다듬었습니다.",
@@ -199,9 +338,6 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
             ],
         }
     else:
-        existing_summary = result_data.get("summary")
-        if existing_summary and not result_data.get("original_summary"):
-            result_data["original_summary"] = existing_summary
         continuation = await ai_agent.continue_task(row.command, result_data)
         if not continuation:
             raise HTTPException(status_code=400, detail="ai continuation failed or AI is not available")
@@ -224,8 +360,9 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
                 *(result_data.get("results") or []),
                 *continuation_task.results,
             ]
+            result_data["summary"] = continuation_task.summary or continuation.get("summary") or "AI가 이어서 작업을 진행했습니다."
             result_data["ai_continuation"] = {
-                "summary": continuation_task.summary or continuation.get("summary") or "AI가 이어서 작업을 진행했습니다.",
+                "summary": continuation.get("summary") or result_data["summary"],
                 "steps": [
                     {
                         "tool": step.tool,
@@ -241,8 +378,9 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
                 row.status = TaskStatus.done
                 row.error = None
         else:
+            result_data["summary"] = continuation.get("summary") or "AI가 현재 결과를 바탕으로 후속 작업 방향을 정리했습니다."
             result_data["ai_continuation"] = {
-                "summary": continuation.get("summary") or "AI가 현재 결과를 바탕으로 후속 작업 방향을 정리했습니다.",
+                "summary": result_data["summary"],
                 "steps": [],
             }
             row.status = TaskStatus.done
@@ -258,6 +396,14 @@ async def continue_task_with_ai(task_id: str, session: AsyncSession = Depends(ge
             message="continued draft with AI",
         )
     )
+    await record_task_trace(
+        task_id,
+        stage="continue_ai",
+        event="continue_completed",
+        status=row.status.value,
+        detail={"result_count": len(result_data.get("results") or [])},
+        session=session,
+    )
     await session.commit()
     await session.refresh(row)
     return _row_to_response(row)
@@ -272,6 +418,7 @@ async def delete_task(task_id: str, session: AsyncSession = Depends(get_session)
         raise HTTPException(status_code=404, detail="task not found")
 
     await session.execute(delete(TaskLog).where(TaskLog.task_id == task_id))
+    await session.execute(delete(TaskTraceEvent).where(TaskTraceEvent.task_id == task_id))
     await session.execute(delete(ApprovalRequest).where(ApprovalRequest.task_id == task_id))
     await session.delete(row)
     await session.commit()
@@ -291,6 +438,7 @@ async def delete_tasks(req: DeleteTasksRequest, session: AsyncSession = Depends(
         raise HTTPException(status_code=404, detail="tasks not found")
 
     await session.execute(delete(TaskLog).where(TaskLog.task_id.in_(existing_ids)))
+    await session.execute(delete(TaskTraceEvent).where(TaskTraceEvent.task_id.in_(existing_ids)))
     await session.execute(delete(ApprovalRequest).where(ApprovalRequest.task_id.in_(existing_ids)))
     await session.execute(delete(TaskModel).where(TaskModel.id.in_(existing_ids)))
     await session.commit()
