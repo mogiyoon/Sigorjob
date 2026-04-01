@@ -3,7 +3,12 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 from ai.runtime import has_api_key, validate_connection
 from tunnel import manager as tunnel
-from connections.registry import list_connections, update_external_connection
+from connections.registry import (
+    delete_custom_connection,
+    list_connections,
+    update_external_connection,
+    upsert_custom_connection,
+)
 from config.store import config_store
 from config.secret_store import secret_store
 from permissions import list_permissions, set_permission
@@ -25,6 +30,22 @@ class PermissionUpdateRequest(BaseModel):
 
 
 class ConnectionUpdateRequest(BaseModel):
+    configured: bool | None = None
+    verified: bool | None = None
+    account_label: str | None = None
+    available: bool | None = None
+    metadata: dict | None = None
+
+
+class CustomConnectionRequest(BaseModel):
+    connection_id: str
+    title: str
+    description: str | None = None
+    provider: str | None = None
+    auth_type: str | None = None
+    driver_id: str | None = None
+    capabilities: list[str] | None = None
+    capability_permissions: dict | None = None
     configured: bool | None = None
     verified: bool | None = None
     account_label: str | None = None
@@ -95,6 +116,36 @@ async def update_connection(connection_id: str, req: ConnectionUpdateRequest):
     return {"success": True, "connection": item}
 
 
+@router.post("/setup/connections/custom")
+async def upsert_connection(req: CustomConnectionRequest):
+    item = upsert_custom_connection(
+        req.connection_id,
+        title=req.title.strip(),
+        description=req.description,
+        provider=req.provider,
+        auth_type=req.auth_type,
+        driver_id=req.driver_id,
+        capabilities=req.capabilities,
+        capability_permissions=req.capability_permissions,
+        configured=req.configured,
+        verified=req.verified,
+        account_label=req.account_label,
+        available=req.available,
+        metadata=req.metadata,
+    )
+    if item is None:
+        return {"success": False, "error": "connection_id is required"}
+    return {"success": True, "connection": item}
+
+
+@router.delete("/setup/connections/custom/{connection_id}")
+async def remove_custom_connection(connection_id: str):
+    deleted = delete_custom_connection(connection_id)
+    if not deleted:
+        return {"success": False, "error": "Unknown custom connection."}
+    return {"success": True, "connection_id": connection_id}
+
+
 @router.post("/setup/permissions")
 async def update_permission(req: PermissionUpdateRequest):
     permission_id = req.permission_id.strip()
@@ -163,8 +214,6 @@ async def reset_ai():
 @router.post("/setup/cloudflare")
 async def setup_cloudflare(req: SetupRequest):
     """Cloudflare 터널 토큰 저장 후 터널 연결 시도."""
-    import asyncio
-
     if not tunnel.is_installed():
         return {
             "success": False,
@@ -181,14 +230,9 @@ async def setup_cloudflare(req: SetupRequest):
 
     # 기존 터널 종료 후 재시작
     await tunnel.stop()
-    asyncio.create_task(tunnel.start())
-
-    # 최대 15초 대기하며 URL 확인
-    for _ in range(15):
-        await asyncio.sleep(1)
-        url = tunnel.get_url()
-        if url:
-            return {"success": True, "tunnel_url": url}
+    url = await tunnel.start()
+    if url:
+        return {"success": True, "tunnel_url": url}
 
     return {
         "success": False,
@@ -200,8 +244,6 @@ async def setup_cloudflare(req: SetupRequest):
 @router.post("/setup/quick")
 async def setup_quick_tunnel():
     """Quick Tunnel 모드 활성화."""
-    import asyncio
-
     if not tunnel.is_installed():
         return {
             "success": False,
@@ -217,13 +259,9 @@ async def setup_quick_tunnel():
     config_store.delete("cloudflare_tunnel_token")
 
     await tunnel.stop()
-    asyncio.create_task(tunnel.start())
-
-    for _ in range(15):
-        await asyncio.sleep(1)
-        url = tunnel.get_url()
-        if url:
-            return {"success": True, "tunnel_url": url}
+    url = await tunnel.start()
+    if url:
+        return {"success": True, "tunnel_url": url}
 
     return {
         "success": False,
