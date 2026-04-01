@@ -1,7 +1,7 @@
 /**
  * API 클라이언트
  *
- * - PC (Tauri/브라우저): 로컬 백엔드 주소로 직접 호출
+ * - PC (Tauri/브라우저): http://127.0.0.1:8000 으로 직접 호출
  * - 모바일 WebView: 터널 URL을 통해 로드되므로 상대 경로 사용
  *   (window.location.origin == 터널 URL → same-origin)
  *
@@ -11,63 +11,39 @@
  * - 프론트는 URL에서 토큰을 제거만 하고 저장하지 않음
  */
 
-declare global {
-  interface Window {
-    __SIGORJOB_LOCAL_API_URL?: string;
-    __SIGORJOB_LOCAL_API_PORT?: number;
-  }
-}
-
-const DEFAULT_LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
-
-function getRuntimeLocalApiBaseUrl(): string {
-  if (typeof window !== "undefined" && window.__SIGORJOB_LOCAL_API_URL) {
-    return window.__SIGORJOB_LOCAL_API_URL;
-  }
-  return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_LOCAL_API_BASE_URL;
-}
-
-function isNativeLocalUi(): boolean {
-  if (typeof window === "undefined") return false;
-  return ["127.0.0.1", "localhost", "tauri.localhost"].includes(window.location.hostname);
-}
-
-async function resolveLocalApiBaseUrl(): Promise<string> {
-  if (typeof window === "undefined") {
-    return DEFAULT_LOCAL_API_BASE_URL;
-  }
-
-  if (!isNativeLocalUi()) {
-    return getRuntimeLocalApiBaseUrl();
-  }
-
-  if (window.__SIGORJOB_LOCAL_API_URL) {
-    return window.__SIGORJOB_LOCAL_API_URL;
-  }
-
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    if (window.__SIGORJOB_LOCAL_API_URL) {
-      return window.__SIGORJOB_LOCAL_API_URL;
-    }
-  }
-
-  return getRuntimeLocalApiBaseUrl();
-}
-
 export function getBaseUrl(): string {
-  if (typeof window === "undefined") return DEFAULT_LOCAL_API_BASE_URL;
+  if (typeof window === "undefined") return "http://127.0.0.1:8000";
   const origin = window.location.origin;
   // 로컬 개발 환경
   if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
-    return getRuntimeLocalApiBaseUrl();
+    return (
+      getInjectedLocalApiUrl() ??
+      process.env.NEXT_PUBLIC_API_URL ??
+      "http://127.0.0.1:8000"
+    );
   }
   // 터널 URL에서 로드된 경우 — 같은 오리진으로 API 호출
   return origin;
 }
 
 export function getLocalApiBaseUrl(): string {
-  return getRuntimeLocalApiBaseUrl();
+  return (
+    getInjectedLocalApiUrl() ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    "http://127.0.0.1:8000"
+  );
+}
+
+declare global {
+  interface Window {
+    __SIGORJOB_LOCAL_API_URL?: string;
+  }
+}
+
+function getInjectedLocalApiUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const injected = window.__SIGORJOB_LOCAL_API_URL;
+  return injected && injected.trim() ? injected : null;
 }
 
 export function clearToken() {
@@ -94,26 +70,32 @@ export function initTokenFromUrl() {
 }
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const baseUrl =
-    typeof window !== "undefined" && isNativeLocalUi() && path.startsWith("/setup")
-      ? await resolveLocalApiBaseUrl()
-      : getBaseUrl();
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (res.status === 401) {
-    throw new UnauthorizedError("토큰이 만료되었거나 유효하지 않습니다.");
+  const url = `${getBaseUrl()}${path}`;
+  try {
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (res.status === 401) {
+      throw new UnauthorizedError("토큰이 만료되었거나 유효하지 않습니다.");
+    }
+    return res;
+  } catch (error) {
+    console.warn("[api] request failed", {
+      path,
+      url,
+      method: init?.method ?? "GET",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-  return res;
 }
 
 export async function localApiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const baseUrl = await resolveLocalApiBaseUrl();
-  return fetch(`${baseUrl}${path}`, {
+  return fetch(`${getLocalApiBaseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -125,8 +107,8 @@ export async function localApiFetch(path: string, init?: RequestInit): Promise<R
 export interface TaskResponse {
   task_id: string;
   command?: string | null;
-  status: "pending" | "running" | "done" | "failed" | "approval_required" | "cancelled";
-  result: { summary: string; results: unknown[] } | null;
+  status: "pending" | "running" | "done" | "failed" | "needs_clarification" | "approval_required" | "cancelled";
+  result: { summary: string; results: unknown[]; [key: string]: unknown } | null;
   created_at?: string | null;
   completed_at?: string | null;
 }
@@ -157,6 +139,10 @@ export interface PermissionItem {
   source: string;
   required_for: string[];
   granted: boolean;
+  group?: string;
+  group_title?: string;
+  priority?: number;
+  advanced?: boolean;
   risk?: "low" | "medium" | "high";
 }
 
@@ -167,6 +153,10 @@ export interface ConnectionItem {
   provider: string;
   kind: "core" | "external";
   connection_type: string;
+  auth_type?: string;
+  driver_id?: string;
+  capabilities?: string[];
+  capability_permissions?: Record<string, string[]>;
   required_permissions: string[];
   configured: boolean;
   verified: boolean;
@@ -181,6 +171,14 @@ export interface ConnectionItem {
     | "available"
     | "planned";
   next_action: string;
+}
+
+export interface CustomCommandItem {
+  id: string;
+  trigger: string;
+  match_type: "contains" | "exact";
+  action_text: string;
+  enabled: boolean;
 }
 
 export interface SetupStatusResponse {
@@ -200,13 +198,40 @@ export interface SetupStatusResponse {
   permissions: PermissionItem[];
 }
 
-export async function sendCommand(text: string): Promise<TaskResponse> {
+export interface CustomConnectionRequest {
+  connection_id: string;
+  title: string;
+  description?: string | null;
+  provider?: string | null;
+  auth_type?: string | null;
+  driver_id?: string | null;
+  capabilities?: string[] | null;
+  capability_permissions?: Record<string, string[]> | null;
+  configured?: boolean | null;
+  verified?: boolean | null;
+  account_label?: string | null;
+  available?: boolean | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export async function sendCommand(text: string, context: Record<string, unknown> = {}): Promise<TaskResponse> {
+  console.warn("[api] sendCommand request", {
+    baseUrl: getBaseUrl(),
+    text,
+    context,
+  });
   const res = await apiFetch("/command", {
     method: "POST",
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, context }),
+  });
+  console.warn("[api] sendCommand response", {
+    status: res.status,
+    ok: res.ok,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const payload = await res.json();
+  console.warn("[api] sendCommand payload", payload);
+  return payload;
 }
 
 export async function getTask(taskId: string): Promise<TaskResponse> {
@@ -222,11 +247,9 @@ export async function listTasks(limit = 20): Promise<{ tasks: TaskResponse[] }> 
 }
 
 export async function deleteTask(taskId: string): Promise<void> {
-  console.warn("[api] deleteTask request", { taskId, baseUrl: getBaseUrl() });
   const res = await apiFetch(`/task/${taskId}`, {
     method: "DELETE",
   });
-  console.warn("[api] deleteTask response", { taskId, status: res.status, ok: res.ok });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -247,12 +270,10 @@ export async function continueTaskWithAi(taskId: string): Promise<TaskResponse> 
 }
 
 export async function deleteTasks(taskIds: string[]): Promise<void> {
-  console.warn("[api] deleteTasks request", { taskIds, baseUrl: getBaseUrl() });
   const res = await apiFetch("/tasks/delete", {
     method: "POST",
     body: JSON.stringify({ task_ids: taskIds }),
   });
-  console.warn("[api] deleteTasks response", { taskIds, status: res.status, ok: res.ok });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
@@ -268,6 +289,7 @@ export async function pollUntilDone(
     if (
       task.status === "done" ||
       task.status === "failed" ||
+      task.status === "needs_clarification" ||
       task.status === "approval_required" ||
       task.status === "cancelled"
     ) {
@@ -301,16 +323,9 @@ export async function rejectTask(taskId: string): Promise<void> {
 }
 
 export async function listSchedules(): Promise<{ schedules: ScheduleItem[] }> {
-  console.warn("[api] listSchedules request", { baseUrl: getBaseUrl() });
   const res = await apiFetch("/schedules");
-  console.warn("[api] listSchedules response", { status: res.status, ok: res.ok });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  console.warn("[api] listSchedules payload", {
-    count: data.schedules?.length ?? 0,
-    scheduleIds: (data.schedules ?? []).map((schedule: ScheduleItem) => schedule.schedule_id),
-  });
-  return data;
+  return res.json();
 }
 
 export async function createSchedule(input: {
@@ -328,6 +343,32 @@ export async function createSchedule(input: {
 
 export async function deleteSchedule(scheduleId: string): Promise<void> {
   const res = await apiFetch(`/schedule/${scheduleId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function listCustomCommands(): Promise<{ custom_commands: CustomCommandItem[] }> {
+  const res = await apiFetch("/custom-commands");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function createCustomCommand(input: {
+  trigger: string;
+  action_text: string;
+  match_type: "contains" | "exact";
+}): Promise<{ success: boolean; custom_command?: CustomCommandItem; error?: string }> {
+  const res = await apiFetch("/custom-commands", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function deleteCustomCommand(ruleId: string): Promise<void> {
+  const res = await apiFetch(`/custom-commands/${ruleId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -365,21 +406,32 @@ export async function updateConnection(
   return res.json();
 }
 
+export async function upsertCustomConnection(
+  input: CustomConnectionRequest
+): Promise<{ success: boolean; connection?: ConnectionItem; error?: string }> {
+  const res = await localApiFetch("/setup/connections/custom", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function deleteCustomConnection(
+  connectionId: string
+): Promise<{ success: boolean; connection_id?: string; error?: string }> {
+  const res = await localApiFetch(`/setup/connections/custom/${encodeURIComponent(connectionId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function disconnectTunnel(): Promise<void> {
   const res = await localApiFetch("/setup/tunnel", {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-}
-
-export async function restartQuickTunnel(): Promise<{ success: boolean; tunnel_url: string | null; error?: string }> {
-  console.warn("[api] restartQuickTunnel request", { baseUrl: getLocalApiBaseUrl() });
-  const res = await localApiFetch("/setup/quick", {
-    method: "POST",
-  });
-  console.warn("[api] restartQuickTunnel response", { status: res.status, ok: res.ok });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
 }
 
 export async function sendTestMobileNotification(input?: {

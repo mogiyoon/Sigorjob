@@ -8,6 +8,7 @@ interface Props {
   onDelete?: (taskId: string) => void;
   onRetry?: (taskId: string) => void;
   onContinueWithAi?: (taskId: string) => void;
+  onClarificationAnswer?: (task: TaskResponse, answer: string) => void;
   deleting?: boolean;
   retrying?: boolean;
   continuingWithAi?: boolean;
@@ -21,6 +22,7 @@ const statusColor: Record<TaskResponse["status"], string> = {
   running: "bg-blue-100 text-blue-700",
   done: "bg-green-100 text-green-700",
   failed: "bg-red-100 text-red-700",
+  needs_clarification: "bg-indigo-100 text-indigo-700",
   approval_required: "bg-yellow-100 text-yellow-700",
   cancelled: "bg-gray-200 text-gray-700",
 };
@@ -30,6 +32,7 @@ export default function TaskCard({
   onDelete,
   onRetry,
   onContinueWithAi,
+  onClarificationAnswer,
   deleting = false,
   retrying = false,
   continuingWithAi = false,
@@ -40,77 +43,76 @@ export default function TaskCard({
   const { t } = useLanguage();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [aiPlanOpen, setAiPlanOpen] = useState(false);
-
-  const resultItems = Array.isArray(task.result?.results)
-    ? (
-        task.result.results as Array<{
-          success?: boolean;
-          data?: {
-            text?: string;
-            url?: string;
-            title?: string;
-            action?: string;
-            links?: { title?: string; url?: string }[];
-            schedule_id?: string;
-            cron?: string;
-            command?: string;
-            source_name?: string;
-            source_url?: string;
-            name?: string;
-            draft_type?: string;
-            recipient?: string;
-            subject?: string;
-            body?: string;
-            ai_enhanced?: boolean;
-          };
-          error?: string;
-        }>
-      )
-    : [];
+  const [clarificationAnswer, setClarificationAnswer] = useState("");
 
   const statusLabel: Record<TaskResponse["status"], string> = {
     pending: t("pending"),
     running: t("running_status"),
     done: t("done"),
     failed: t("failed"),
+    needs_clarification: t("needs_clarification"),
     approval_required: t("approval_required"),
     cancelled: t("cancelled"),
   };
 
-  const primaryResult =
-    [...resultItems].reverse().find((result) => result.data?.action === "open_url")
-    ?? resultItems[0];
+  const firstResult = task.result?.results?.[0] as
+    | {
+        success?: boolean;
+        data?: {
+          text?: string;
+          url?: string;
+          title?: string;
+          action?: string;
+          links?: { title?: string; url?: string }[];
+          schedule_id?: string;
+          cron?: string;
+          command?: string;
+          source_name?: string;
+          source_url?: string;
+          name?: string;
+          draft_type?: string;
+          recipient?: string;
+          subject?: string;
+          body?: string;
+          ai_enhanced?: boolean;
+        };
+        error?: string;
+      }
+    | undefined;
 
-  const crawlPreview = primaryResult?.data?.text?.slice(0, 280);
-  const crawlUrl = primaryResult?.data?.url;
-  const openActionUrl = primaryResult?.data?.action === "open_url" ? primaryResult?.data?.url : null;
-  const openActionTitle = primaryResult?.data?.title || t("open_link");
+  const crawlPreview = firstResult?.data?.text?.slice(0, 280);
+  const crawlUrl = firstResult?.data?.url;
+  const openActionUrl = firstResult?.data?.action === "open_url" ? firstResult?.data?.url : null;
+  const openActionTitle = firstResult?.data?.title || t("open_link");
   const purchaseAssist =
-    primaryResult?.data?.action === "open_url" &&
-    (primaryResult?.data as { purchase_intent?: boolean } | undefined)?.purchase_intent
-      ? primaryResult?.data
+    firstResult?.data?.action === "open_url" &&
+    (firstResult?.data as { purchase_intent?: boolean } | undefined)?.purchase_intent
+      ? firstResult?.data
       : null;
   const scheduleResult =
-    primaryResult?.data?.action === "schedule_created" || primaryResult?.data?.action === "schedule_draft"
-      ? primaryResult?.data
+    firstResult?.data?.action === "schedule_created" || firstResult?.data?.action === "schedule_draft"
+      ? firstResult?.data
       : null;
   const draftResult =
-    primaryResult?.data?.draft_type === "message" || primaryResult?.data?.draft_type === "email"
-      ? primaryResult?.data
+    firstResult?.data?.draft_type === "message" || firstResult?.data?.draft_type === "email"
+      ? firstResult?.data
       : null;
-  const searchLinks = primaryResult?.data?.links ?? [];
-  const errorMessage = primaryResult?.error;
+  const searchLinks = firstResult?.data?.links ?? [];
+  const errorMessage = firstResult?.error;
   const aiContinuation = (
     task.result as {
-      original_summary?: string;
       ai_continuation?: { summary?: string; steps?: { tool?: string; description?: string }[] };
     } | null
   )?.ai_continuation;
-  const originalSummary = (
+  const clarification = (
     task.result as {
-      original_summary?: string;
+      clarification?: {
+        question?: string;
+        attempt?: number;
+        max_attempts?: number;
+      };
     } | null
-  )?.original_summary;
+  )?.clarification;
 
   const finishedAt = task.completed_at || task.created_at;
   const formattedFinishedAt = finishedAt
@@ -133,7 +135,11 @@ export default function TaskCard({
           {retrying ? t("running") : t("retry")}
         </button>
       )}
-      {!draftResult && onContinueWithAi && task.status !== "pending" && task.status !== "running" && (
+      {!draftResult &&
+        onContinueWithAi &&
+        task.status !== "pending" &&
+        task.status !== "running" &&
+        task.status !== "needs_clarification" && (
         <button
           onClick={() => onContinueWithAi(task.task_id)}
           disabled={continuingWithAi}
@@ -144,14 +150,7 @@ export default function TaskCard({
       )}
       {onDelete && (
         <button
-          onClick={() => {
-            console.warn("[history] delete button clicked", {
-              taskId: task.task_id,
-              status: task.status,
-              deleting,
-            });
-            onDelete(task.task_id);
-          }}
+          onClick={() => onDelete(task.task_id)}
           disabled={deleting}
           className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
         >
@@ -184,29 +183,22 @@ export default function TaskCard({
       <div className="space-y-2">
         {task.command && <p className="text-sm font-medium text-gray-900 break-words">{task.command}</p>}
         {task.result?.summary && <p className="text-sm leading-6 text-gray-600">{task.result.summary}</p>}
-        {originalSummary && originalSummary !== task.result?.summary && (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
-            <p className="text-xs text-gray-500">{t("previous_result", "Previous result")}</p>
-            <p className="mt-1 text-sm leading-6 text-gray-700">{originalSummary}</p>
-          </div>
-        )}
       </div>
 
       {crawlUrl && (
-        <a
-          href={crawlUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => openExternalUrl(crawlUrl)}
           className="block text-xs text-blue-600 hover:text-blue-700 break-all"
         >
           {crawlUrl}
-        </a>
+        </button>
       )}
 
       {openActionUrl && (
         <button
           type="button"
-          onClick={() => void openExternalUrl(openActionUrl)}
+          onClick={() => openExternalUrl(openActionUrl)}
           className="inline-flex items-center rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           {openActionTitle}
@@ -234,14 +226,13 @@ export default function TaskCard({
             <p className="text-xs font-mono text-emerald-700">{scheduleResult.cron}</p>
           )}
           {scheduleResult.source_name && scheduleResult.source_url && (
-            <a
-              href={scheduleResult.source_url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => openExternalUrl(scheduleResult.source_url ?? "")}
               className="block text-xs text-emerald-700 hover:text-emerald-800 break-all"
             >
               {scheduleResult.source_name}
-            </a>
+            </button>
           )}
           {scheduleResult.command && (
             <p className="text-xs text-emerald-800 break-words">{scheduleResult.command}</p>
@@ -275,7 +266,10 @@ export default function TaskCard({
               {t("ai_continued")}
             </p>
           )}
-          {onContinueWithAi && task.status !== "pending" && task.status !== "running" && (
+          {onContinueWithAi &&
+            task.status !== "pending" &&
+            task.status !== "running" &&
+            task.status !== "needs_clarification" && (
             <button
               onClick={() => onContinueWithAi(task.task_id)}
               disabled={continuingWithAi}
@@ -319,45 +313,6 @@ export default function TaskCard({
         </button>
       )}
 
-      {resultItems.length > 1 && (
-        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium text-gray-600">{t("execution_history", "Execution history")}</p>
-            <span className="text-xs text-gray-500">{resultItems.length}</span>
-          </div>
-          <div className="mt-3 space-y-2">
-            {resultItems.map((result, index) => {
-              const data = result.data ?? {};
-              const label =
-                data.title
-                || data.name
-                || data.command
-                || data.url
-                || result.error
-                || t("step");
-
-              return (
-                <div key={`result-${task.task_id}-${index}`} className="rounded-xl bg-white p-3">
-                  <p className="text-xs font-medium text-gray-500">
-                    {t("step")} {index + 1}
-                  </p>
-                  <p className="mt-1 text-sm text-gray-900 break-words">{label}</p>
-                  {data.url && (
-                    <button
-                      type="button"
-                      onClick={() => data.url && void openExternalUrl(data.url)}
-                      className="mt-2 block text-xs text-blue-600 break-all"
-                    >
-                      {data.url}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {searchLinks.length > 0 && (
         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
@@ -368,8 +323,8 @@ export default function TaskCard({
             {searchLinks.map((link, index) => (
               <button
                 type="button"
-                key={`${link.url}-${index}`}
-                onClick={() => link.url && void openExternalUrl(link.url)}
+                key={`${link.url || "link"}-${index}`}
+                onClick={() => openExternalUrl(link.url || "")}
                 className="block rounded-xl bg-white px-3 py-3 hover:bg-blue-100"
               >
                 <p className="text-sm font-medium text-blue-900 break-words">
@@ -410,6 +365,40 @@ export default function TaskCard({
       )}
       {task.status === "failed" && !task.result?.summary && !errorMessage && (
         <p className="text-sm text-red-600">{t("execution_failed")}</p>
+      )}
+      {task.status === "needs_clarification" && clarification && (
+        <div className="space-y-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-indigo-700">{t("needs_clarification")}</p>
+            <p className="text-sm text-indigo-950 break-words">
+              {clarification.question || task.result?.summary}
+            </p>
+            <p className="text-xs text-indigo-700">
+              {t("clarification_attempts")} {clarification.attempt ?? 1}/{clarification.max_attempts ?? 3}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={clarificationAnswer}
+              onChange={(e) => setClarificationAnswer(e.target.value)}
+              placeholder={t("clarification_placeholder")}
+              className="flex-1 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              disabled={!clarificationAnswer.trim()}
+              onClick={() => {
+                if (!clarificationAnswer.trim() || !onClarificationAnswer) return;
+                onClarificationAnswer(task, clarificationAnswer.trim());
+                setClarificationAnswer("");
+              }}
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {t("send_answer")}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -28,6 +28,7 @@ Current product direction:
 - [Runtime Surfaces](./ko/runtime-surfaces.md)
 - [Remote Access](./ko/remote-access.md)
 - [Cautions](./ko/cautions.md)
+- [Debug Regressions](./ko/debug-regressions.md)
 
 English docs:
 
@@ -39,6 +40,7 @@ English docs:
 - [Runtime Surfaces](./en/runtime-surfaces.md)
 - [Remote Access](./en/remote-access.md)
 - [Cautions](./en/cautions.md)
+- [Debug Regressions](./en/debug-regressions.md)
 
 Notes:
 
