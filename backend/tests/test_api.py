@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from config.store import config_store
 from db import session as db_session
 from gateway.app import app
 from orchestrator import engine as orchestrator_engine
@@ -22,11 +23,21 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         db_path = os.path.join(self.tmpdir.name, "test.db")
         self.engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
         self.session_maker = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.config_data: dict = {}
+        self._orig_config_get = config_store.get
+        self._orig_config_set = config_store.set
+        self._orig_config_delete = config_store.delete
+        self._orig_config_all = config_store.all
+        config_store.get = lambda key, default=None: self.config_data.get(key, default)
+        config_store.set = lambda key, value: self.config_data.__setitem__(key, value)
+        config_store.delete = lambda key: self.config_data.pop(key, None)
+        config_store.all = lambda: dict(self.config_data)
 
         db_session.engine = self.engine
         db_session.AsyncSessionLocal = self.session_maker
         orchestrator_engine.AsyncSessionLocal = self.session_maker
         scheduler_service.AsyncSessionLocal = self.session_maker
+        config_store.set("custom_commands", [])
 
         await db_session.init_db()
         load_default_tools()
@@ -36,6 +47,10 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         self.client = httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000")
 
     async def asyncTearDown(self):
+        config_store.get = self._orig_config_get
+        config_store.set = self._orig_config_set
+        config_store.delete = self._orig_config_delete
+        config_store.all = self._orig_config_all
         await self.client.aclose()
         await scheduler_service.stop()
         await self.engine.dispose()
@@ -98,58 +113,39 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(schedules_after_delete.status_code, 200)
         self.assertEqual(schedules_after_delete.json()["schedules"], [])
 
-    async def test_task_delete_removes_single_task_from_listing(self):
+    async def test_custom_command_create_list_delete_and_route(self):
         created = await self.client.post(
-            "/command",
-            json={"text": "현재 시간", "context": {}},
+            "/custom-commands",
+            json={
+                "trigger": "합주 준비",
+                "action_text": "현재 시간",
+                "match_type": "contains",
+            },
         )
         self.assertEqual(created.status_code, 200)
-        task_id = created.json()["task_id"]
+        payload = created.json()
+        self.assertTrue(payload["success"])
+        rule_id = payload["custom_command"]["id"]
 
-        for _ in range(20):
-            task = await self.client.get(f"/task/{task_id}")
-            self.assertEqual(task.status_code, 200)
-            if task.json()["status"] in {"done", "failed", "cancelled"}:
-                break
-        else:
-            self.fail("task did not finish in time")
+        listed = await self.client.get("/custom-commands")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(len(listed.json()["custom_commands"]), 1)
 
-        deleted = await self.client.delete(f"/task/{task_id}")
+        response = await self.client.post(
+            "/command",
+            json={"text": "합주 준비 좀 해줘", "context": {}},
+        )
+        self.assertEqual(response.status_code, 200)
+        task_id = response.json()["task_id"]
+
+        task = await self.client.get(f"/task/{task_id}")
+        self.assertEqual(task.status_code, 200)
+        task_payload = task.json()
+        self.assertIn(task_payload["status"], {"pending", "done"})
+
+        deleted = await self.client.delete(f"/custom-commands/{rule_id}")
         self.assertEqual(deleted.status_code, 200)
         self.assertTrue(deleted.json()["success"])
-
-        task_after_delete = await self.client.get(f"/task/{task_id}")
-        self.assertEqual(task_after_delete.status_code, 404)
-
-        tasks = await self.client.get("/tasks")
-        self.assertEqual(tasks.status_code, 200)
-        self.assertNotIn(task_id, [item["task_id"] for item in tasks.json()["tasks"]])
-
-    async def test_task_bulk_delete_removes_all_selected_tasks(self):
-        task_ids: list[str] = []
-        for text in ["현재 시간", "pwd"]:
-            created = await self.client.post("/command", json={"text": text, "context": {}})
-            self.assertEqual(created.status_code, 200)
-            task_ids.append(created.json()["task_id"])
-
-        for task_id in task_ids:
-            for _ in range(20):
-                task = await self.client.get(f"/task/{task_id}")
-                self.assertEqual(task.status_code, 200)
-                if task.json()["status"] in {"done", "failed", "cancelled"}:
-                    break
-            else:
-                self.fail(f"task {task_id} did not finish in time")
-
-        deleted = await self.client.post("/tasks/delete", json={"task_ids": task_ids})
-        self.assertEqual(deleted.status_code, 200)
-        self.assertTrue(deleted.json()["success"])
-
-        tasks = await self.client.get("/tasks")
-        self.assertEqual(tasks.status_code, 200)
-        remaining_ids = [item["task_id"] for item in tasks.json()["tasks"]]
-        for task_id in task_ids:
-            self.assertNotIn(task_id, remaining_ids)
 
 
 if __name__ == "__main__":

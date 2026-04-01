@@ -13,6 +13,7 @@ class TaskStatus(str, enum.Enum):
     running = "running"
     done = "done"
     failed = "failed"
+    needs_clarification = "needs_clarification"
     approval_required = "approval_required"
     cancelled = "cancelled"
 
@@ -74,4 +75,16 @@ class TaskLog(Base):
     task_id = Column(String, nullable=False)
     level = Column(String, nullable=False)   # info / warn / error
     message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class TaskTraceEvent(Base):
+    __tablename__ = "task_trace_events"
+
+    id = Column(String, primary_key=True)
+    task_id = Column(String, nullable=False)
+    stage = Column(String, nullable=False)
+    event = Column(String, nullable=False)
+    status = Column(String, nullable=True)
+    detail = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

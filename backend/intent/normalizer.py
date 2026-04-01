@@ -166,15 +166,6 @@ def detect_intent(command: str) -> NormalizedIntent | None:
             description="open_url",
         )
 
-    email_action = _extract_email_send_intent(normalized)
-    if email_action:
-        return NormalizedIntent(
-            category="open_url",
-            command=normalized,
-            params=email_action,
-            description="email_send",
-        )
-
     if url and any(keyword in lowered for keyword in CRAWL_KEYWORDS):
         return NormalizedIntent(
             category="crawl",
@@ -273,6 +264,15 @@ def detect_intent(command: str) -> NormalizedIntent | None:
             description="system_info",
         )
 
+    email_action = _extract_email_send_intent(normalized)
+    if email_action:
+        return NormalizedIntent(
+            category="open_url",
+            command=normalized,
+            params=email_action,
+            description="email_send",
+        )
+
     reminder_schedule = _extract_reminder_schedule_intent(normalized)
     if reminder_schedule:
         return NormalizedIntent(
@@ -338,6 +338,9 @@ def build_last_resort_intent(command: str) -> NormalizedIntent | None:
     if _looks_like_automation_request(normalized):
         return None
 
+    if not allows_browser_fallback(normalized):
+        return None
+
     shopping_query = _extract_shopping_query(normalized)
     if shopping_query:
         return NormalizedIntent(
@@ -368,6 +371,28 @@ def _looks_like_automation_request(command: str) -> bool:
         if not any(keyword in command or keyword in lowered for keyword in SEARCH_KEYWORDS):
             return True
     return bool(re.search(r"(오전|오후|아침|저녁|밤)?\s*\d{1,2}시", command))
+
+
+def allows_browser_fallback(command: str) -> bool:
+    normalized = normalize_command(command)
+    if not normalized:
+        return False
+
+    if _extract_open_target_intent(normalized):
+        return True
+    if _extract_email_send_intent(normalized):
+        return True
+    if _extract_shopping_query(normalized):
+        return True
+    if _extract_place_search_intent(normalized):
+        return True
+    if _extract_service_search_intent(normalized):
+        return True
+    if _extract_news_query(normalized):
+        return True
+    if _extract_search_query(normalized):
+        return True
+    return False
 
 
 def _extract_url(command: str) -> str | None:
@@ -426,14 +451,11 @@ def _extract_search_query(command: str) -> str | None:
 
 def _extract_email_send_intent(command: str) -> dict | None:
     lowered = command.lower()
-    match = re.search(r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", command)
-    if not match:
+    if not any(keyword in command or keyword in lowered for keyword in EMAIL_SEND_KEYWORDS):
         return None
 
-    explicit_send = any(keyword in command or keyword in lowered for keyword in EMAIL_SEND_KEYWORDS)
-    message_context = bool(re.search(r"(메시지|메일|이메일)", command, re.IGNORECASE))
-    compose_context = bool(re.search(r"(보여줘|보여 줘|써줘|써 줘|작성해줘|작성해 줘|초안)", command, re.IGNORECASE))
-    if not explicit_send and not (message_context and compose_context):
+    match = re.search(r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", command)
+    if not match:
         return None
 
     recipient = match.group(1)
@@ -447,24 +469,6 @@ def _extract_email_send_intent(command: str) -> dict | None:
         body = body_match.group(1).strip().strip("\"'")
         if recipient in body:
             body = ""
-
-    if not body:
-        address_followup = re.search(
-            rf"{re.escape(recipient)}(?:으로|로|에)?\s*(.+?)\s*(?:이라는|라고 하는)?\s*(?:메시지|메일|이메일)\s*(?:보여줘|보여 줘|써줘|써 줘|작성해줘|작성해 줘)?$",
-            command,
-            re.IGNORECASE,
-        )
-        if address_followup:
-            body = address_followup.group(1).strip().strip("\"'")
-
-    if not body:
-        quoted_body = re.search(
-            r"[\"'“”‘’]([^\"'“”‘’]+)[\"'“”‘’]\s*(?:메시지|메일|이메일)",
-            command,
-            re.IGNORECASE,
-        )
-        if quoted_body:
-            body = quoted_body.group(1).strip()
 
     mailto = f"mailto:{recipient}"
     if body:
