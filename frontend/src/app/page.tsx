@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import ApprovalPanel from "@/components/ApprovalPanel";
 import CommandInput from "@/components/CommandInput";
@@ -15,6 +15,7 @@ import {
   deleteTask,
   deleteTasks,
   getBaseUrl,
+  getSetupStatus,
   listApprovals,
   listSchedules,
   listTasks,
@@ -27,10 +28,6 @@ import {
 } from "@/lib/api";
 
 type DashboardTab = "execute" | "routines" | "recent";
-type ConfirmAction =
-  | { kind: "delete-one"; taskId: string }
-  | { kind: "delete-many"; taskIds: string[] }
-  | null;
 
 function CircleIconButton({
   label,
@@ -75,87 +72,132 @@ export default function Home() {
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const [aiVerified, setAiVerified] = useState<boolean | null>(null);
   const [aiValidationError, setAiValidationError] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
-  const refreshInFlight = useRef(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [backendStartupError, setBackendStartupError] = useState<string | null>(null);
+  const [backendStartupLogPath, setBackendStartupLogPath] = useState<string | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<
+    | { mode: "single"; taskId: string }
+    | { mode: "bulk"; taskIds: string[] }
+    | null
+  >(null);
+
+  const refreshRuntimeStatus = async () => {
+    try {
+      const data = await getSetupStatus();
+      setTunnelActive(data.tunnel_active);
+      setCloudflaredInstalled(data.cloudflared_installed);
+      setAiConfigured(Boolean(data.ai_configured));
+      setAiVerified(Boolean(data.ai_verified));
+      setAiValidationError(data.ai_validation_error ?? null);
+    } catch {
+      // backend may still be starting when the desktop app first opens
+    }
+  };
 
   useEffect(() => {
     const localUi =
       typeof window !== "undefined" &&
       ["127.0.0.1", "localhost", "tauri.localhost"].includes(window.location.hostname);
     setIsLocalUi(localUi);
+    if (typeof window !== "undefined") {
+      const startupWindow = window as Window & {
+        __SIGORJOB_STARTUP_ERROR?: string;
+        __SIGORJOB_STARTUP_LOG_PATH?: string;
+      };
+      setBackendStartupError(startupWindow.__SIGORJOB_STARTUP_ERROR?.trim() || null);
+      setBackendStartupLogPath(startupWindow.__SIGORJOB_STARTUP_LOG_PATH?.trim() || null);
+    }
 
     if (!localUi) {
       refreshDashboard();
       return;
     }
 
-    fetch(`${getBaseUrl()}/setup/status`)
-      .then((r) => r.json())
-      .then((data) => {
-        setTunnelActive(data.tunnel_active);
-        setCloudflaredInstalled(data.cloudflared_installed);
-        setAiConfigured(Boolean(data.ai_configured));
-        setAiVerified(Boolean(data.ai_verified));
-        setAiValidationError(data.ai_validation_error ?? null);
-      })
-      .catch(() => {
-        // ignore local bootstrap failures
-      });
-
+    refreshRuntimeStatus();
     refreshDashboard();
+    const interval = setInterval(() => {
+      refreshRuntimeStatus();
+      refreshDashboard();
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, [router]);
 
   const refreshDashboard = async () => {
-    if (refreshInFlight.current) {
-      console.warn("[dashboard] refresh skipped because another refresh is in flight");
-      return;
-    }
-    refreshInFlight.current = true;
     try {
-      console.warn("[dashboard] refresh start");
       const [approvalData, scheduleData, taskData] = await Promise.all([
         listApprovals(),
         listSchedules(),
         listTasks(),
       ]);
-      console.warn("[dashboard] refresh success", {
-        approvals: approvalData.approvals.length,
-        schedules: scheduleData.schedules.length,
-        tasks: taskData.tasks.length,
-        scheduleIds: scheduleData.schedules.map((schedule) => schedule.schedule_id),
-      });
       setAuthExpired(false);
       setApprovals(approvalData.approvals);
       setSchedules(scheduleData.schedules);
       setTasks(taskData.tasks);
+      if (isLocalUi) {
+        await refreshRuntimeStatus();
+      }
     } catch (error) {
-      console.error("[dashboard] refresh failed", error);
       if (error instanceof UnauthorizedError) {
         setAuthExpired(true);
       }
-    } finally {
-      refreshInFlight.current = false;
     }
   };
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      refreshDashboard();
-    }, 5000);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
   const handleSubmit = async (text: string) => {
     setLoading(true);
+    setSubmitError(null);
+    console.warn("[submit] start", {
+      text,
+      isLocalUi,
+      baseUrl: getBaseUrl(),
+    });
     try {
       const initial = await sendCommand(text);
+      console.warn("[submit] initial task created", initial);
       setTasks((prev) => [initial, ...prev.filter((task) => task.task_id !== initial.task_id)]);
 
       const final = await pollUntilDone(initial.task_id, (updated) => {
+        console.warn("[submit] task update", updated);
         setTasks((prev) => prev.map((task) => (task.task_id === updated.task_id ? updated : task)));
       });
+      console.warn("[submit] final task", final);
       setTasks((prev) => prev.map((task) => (task.task_id === final.task_id ? final : task)));
+      await refreshDashboard();
+      return true;
+    } catch (error) {
+      console.warn("[submit] failed", {
+        text,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      console.error(error);
+      if (error instanceof UnauthorizedError) {
+        setSubmitError(t("submit_error_auth", "The connection expired. Reconnect and try again."));
+      } else if (error instanceof Error) {
+        setSubmitError(`${t("submit_error_generic", "Could not send the request. Please try again.")} (${error.message})`);
+      } else {
+        setSubmitError(t("submit_error_generic", "Could not send the request. Please try again."));
+      }
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClarificationAnswer = async (task: TaskResponse, answer: string) => {
+    setLoading(true);
+    try {
+      const clarification = (task.result as { clarification?: unknown } | null)?.clarification ?? {};
+      const nextTask = await sendCommand(answer, { clarification });
+      setTasks((prev) => [
+        nextTask,
+        ...prev.filter((item) => item.task_id !== task.task_id && item.task_id !== nextTask.task_id),
+      ]);
+
+      const final = await pollUntilDone(nextTask.task_id, (updated) => {
+        setTasks((prev) => prev.map((item) => (item.task_id === updated.task_id ? updated : item)));
+      });
+      setTasks((prev) => prev.map((item) => (item.task_id === final.task_id ? final : item)));
       await refreshDashboard();
     } catch (error) {
       console.error(error);
@@ -164,26 +206,17 @@ export default function Home() {
     }
   };
 
-  const performDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = async (taskId: string) => {
     setDeletingTaskId(taskId);
     try {
-      console.warn("[history] delete start", { taskId });
       await deleteTask(taskId);
-      console.warn("[history] delete api success", { taskId });
       setTasks((prev) => prev.filter((task) => task.task_id !== taskId));
-      console.warn("[history] delete state updated", { taskId });
       await refreshDashboard();
     } catch (error) {
-      console.error("[history] delete failed", { taskId, error });
+      console.error(error);
     } finally {
-      console.warn("[history] delete finished", { taskId });
       setDeletingTaskId(null);
     }
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    console.warn("[history] delete dialog open", { taskId });
-    setConfirmAction({ kind: "delete-one", taskId });
   };
 
   const handleRetryTask = async (taskId: string) => {
@@ -216,52 +249,19 @@ export default function Home() {
     }
   };
 
-  const performDeleteSelected = async (taskIds: string[]) => {
-    setBulkDeleting(true);
-    try {
-      console.warn("[history] bulk delete start", { taskIds });
-      await deleteTasks(taskIds);
-      console.warn("[history] bulk delete api success", { taskIds });
-      setTasks((prev) => prev.filter((task) => !taskIds.includes(task.task_id)));
-      setSelectedCompletedTaskIds((prev) => prev.filter((taskId) => !taskIds.includes(taskId)));
-      console.warn("[history] bulk delete state updated", { taskIds });
-      await refreshDashboard();
-    } catch (error) {
-      console.error("[history] bulk delete failed", { taskIds, error });
-    } finally {
-      console.warn("[history] bulk delete finished", { taskIds });
-      setBulkDeleting(false);
-    }
-  };
-
   const handleDeleteSelected = async (taskIds: string[]) => {
     if (taskIds.length === 0) return;
-    console.warn("[history] bulk delete dialog open", { taskIds });
-    setConfirmAction({ kind: "delete-many", taskIds });
-  };
-
-  const confirmDialogTitle =
-    confirmAction?.kind === "delete-many" ? t("delete_selected") : t("delete");
-  const confirmDialogDescription =
-    confirmAction?.kind === "delete-many"
-      ? `${confirmAction.taskIds.length}${t("completed_history")}${t("delete_selected")}?`
-      : t("delete");
-  const confirmDialogLoading =
-    confirmAction?.kind === "delete-many" ? bulkDeleting : deletingTaskId !== null;
-
-  const handleConfirmAction = async () => {
-    if (!confirmAction) return;
-    console.warn("[history] confirm dialog accepted", confirmAction);
-    if (confirmAction.kind === "delete-one") {
-      const taskId = confirmAction.taskId;
-      setConfirmAction(null);
-      await performDeleteTask(taskId);
-      return;
+    setBulkDeleting(true);
+    try {
+      await deleteTasks(taskIds);
+      setTasks((prev) => prev.filter((task) => !taskIds.includes(task.task_id)));
+      setSelectedCompletedTaskIds((prev) => prev.filter((taskId) => !taskIds.includes(taskId)));
+      await refreshDashboard();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setBulkDeleting(false);
     }
-
-    const taskIds = confirmAction.taskIds;
-    setConfirmAction(null);
-    await performDeleteSelected(taskIds);
   };
 
   const toggleCompletedTaskSelection = (taskId: string) => {
@@ -271,11 +271,12 @@ export default function Home() {
   };
 
   const activeTasks = tasks.filter((task) =>
-    ["pending", "running", "approval_required"].includes(task.status)
+    ["pending", "running", "needs_clarification", "approval_required"].includes(task.status)
   );
   const completedTasks = tasks.filter((task) =>
     ["done", "failed", "cancelled"].includes(task.status)
   );
+  const recentCompletedTasks = completedTasks.slice(0, 3);
   const failedTasks = completedTasks.filter((task) => task.status === "failed");
   const completedTasksByCategory = {
     all: completedTasks,
@@ -303,15 +304,6 @@ export default function Home() {
     }))
     .filter((entry) => entry.recentRuns.length > 0)
     .slice(0, 3);
-
-  console.warn("[dashboard] schedule state snapshot", {
-    schedules: schedules.length,
-    scheduleIds: schedules.map((schedule) => schedule.schedule_id),
-    upcomingSchedules: upcomingSchedules.length,
-    scheduleHistory: scheduleHistory.length,
-    activeTab,
-    isLocalUi,
-  });
 
   const formatDateTime = (value: string | null) => {
     if (!value) return t("not_scheduled", "TBD");
@@ -360,6 +352,40 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.08),_transparent_28%),linear-gradient(to_bottom,_#f8fafc,_#f3f4f6)] px-4 py-5 md:py-7">
+      <ConfirmDialog
+        open={deleteDialog !== null}
+        title={
+          deleteDialog?.mode === "bulk"
+            ? t("delete_selected_confirm_title", "선택한 실행 내역을 삭제할까요?")
+            : t("delete_task_confirm_title", "이 실행 내역을 삭제할까요?")
+        }
+        description={
+          deleteDialog?.mode === "bulk"
+            ? t(
+                "delete_selected_confirm_desc",
+                "선택한 실행 내역, 결과, 승인 기록, 추적 로그를 함께 지웁니다."
+              )
+            : t(
+                "delete_task_confirm_desc",
+                "이 실행 내역의 결과, 승인 기록, 추적 로그를 함께 지웁니다."
+              )
+        }
+        confirmLabel={t("delete")}
+        cancelLabel={t("cancel", "취소")}
+        tone="danger"
+        busy={Boolean(deletingTaskId || bulkDeleting)}
+        onCancel={() => setDeleteDialog(null)}
+        onConfirm={() => {
+          if (!deleteDialog) return;
+          const current = deleteDialog;
+          setDeleteDialog(null);
+          if (current.mode === "single") {
+            void handleDeleteTask(current.taskId);
+            return;
+          }
+          void handleDeleteSelected(current.taskIds);
+        }}
+      />
       <div className="mx-auto w-full max-w-5xl space-y-4">
         <section className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-4">
@@ -424,6 +450,28 @@ export default function Home() {
           </div>
         )}
 
+        {backendStartupError && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-950">
+              {t("backend_startup_failed_title", "백엔드 시작에 실패했습니다")}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-amber-900">
+              {t(
+                "backend_startup_failed_desc",
+                "앱 화면은 열렸지만 내부 백엔드를 붙이지 못했습니다. 아래 원인과 로그 파일 경로를 먼저 확인해주세요."
+              )}
+            </p>
+            <p className="mt-3 whitespace-pre-wrap break-words rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs text-amber-900">
+              {backendStartupError}
+            </p>
+            {backendStartupLogPath && (
+              <p className="mt-2 break-all text-xs text-amber-800">
+                {t("backend_startup_log_path", "로그 파일")}: {backendStartupLogPath}
+              </p>
+            )}
+          </div>
+        )}
+
         <section className="grid grid-cols-3 gap-3">
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
             <p className="text-[11px] text-amber-700">{t("pending_actions")}</p>
@@ -466,17 +514,23 @@ export default function Home() {
                 <div className="mt-3">
                   <CommandInput onSubmit={handleSubmit} loading={loading} />
                 </div>
+                {submitError && (
+                  <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    {submitError}
+                  </div>
+                )}
                 <div className="mt-3 space-y-3">
                   {activeTasks.map((task) => (
                     <TaskCard
                       key={task.task_id}
                       task={task}
-                      onDelete={handleDeleteTask}
+                      onDelete={(taskId) => setDeleteDialog({ mode: "single", taskId })}
                       deleting={deletingTaskId === task.task_id}
                       onRetry={handleRetryTask}
                       retrying={retryingTaskId === task.task_id}
                       onContinueWithAi={handleContinueWithAi}
                       continuingWithAi={continuingAiTaskId === task.task_id}
+                      onClarificationAnswer={handleClarificationAnswer}
                     />
                   ))}
                   {activeTasks.length === 0 && (
@@ -487,6 +541,31 @@ export default function Home() {
                     </div>
                   )}
                 </div>
+                {recentCompletedTasks.length > 0 && (
+                  <div className="mt-5 space-y-3 border-t border-gray-100 pt-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-950">
+                        {t("latest_completed_title", "방금 끝난 작업")}
+                      </h3>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {t("latest_completed_desc", "실행 직후 작업이 사라져 보이지 않도록 최근 완료 작업을 잠깐 여기에도 남깁니다.")}
+                      </p>
+                    </div>
+                    {recentCompletedTasks.map((task) => (
+                      <TaskCard
+                        key={`recent-${task.task_id}`}
+                        task={task}
+                        onDelete={(taskId) => setDeleteDialog({ mode: "single", taskId })}
+                        deleting={deletingTaskId === task.task_id}
+                        onRetry={handleRetryTask}
+                        retrying={retryingTaskId === task.task_id}
+                        onContinueWithAi={handleContinueWithAi}
+                        continuingWithAi={continuingAiTaskId === task.task_id}
+                        onClarificationAnswer={handleClarificationAnswer}
+                      />
+                    ))}
+                  </div>
+                )}
               </section>
 
               <section className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -658,7 +737,12 @@ export default function Home() {
                           : t("select_all")}
                       </button>
                       <button
-                        onClick={() => handleDeleteSelected(selectedVisibleCompletedTaskIds)}
+                        onClick={() =>
+                          setDeleteDialog({
+                            mode: "bulk",
+                            taskIds: selectedVisibleCompletedTaskIds,
+                          })
+                        }
                         disabled={selectedVisibleCompletedTaskIds.length === 0 || bulkDeleting}
                         className="rounded-full bg-gray-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                       >
@@ -680,12 +764,13 @@ export default function Home() {
                       <TaskCard
                         key={task.task_id}
                         task={task}
-                        onDelete={handleDeleteTask}
+                        onDelete={(taskId) => setDeleteDialog({ mode: "single", taskId })}
                         deleting={deletingTaskId === task.task_id}
                         onRetry={handleRetryTask}
                         retrying={retryingTaskId === task.task_id}
                         onContinueWithAi={handleContinueWithAi}
                         continuingWithAi={continuingAiTaskId === task.task_id}
+                        onClarificationAnswer={handleClarificationAnswer}
                         selectable
                         selected={selectedCompletedTaskIds.includes(task.task_id)}
                         onToggleSelect={toggleCompletedTaskSelection}
@@ -706,8 +791,8 @@ export default function Home() {
           </section>
         )}
 
-      {infoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+        {infoModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
             <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -774,20 +859,6 @@ export default function Home() {
             </div>
           </div>
         )}
-
-        <ConfirmDialog
-          open={Boolean(confirmAction)}
-          title={confirmDialogTitle}
-          description={confirmDialogDescription}
-          confirmLabel={t("delete")}
-          cancelLabel={t("close")}
-          loading={confirmDialogLoading}
-          onCancel={() => {
-            console.warn("[history] confirm dialog cancelled", confirmAction);
-            setConfirmAction(null);
-          }}
-          onConfirm={handleConfirmAction}
-        />
       </div>
     </main>
   );

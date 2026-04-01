@@ -1,12 +1,15 @@
 "use client";
 
+import { useLanguage } from "@/components/LanguageProvider";
+
 interface Props {
   open: boolean;
   title: string;
   description: string;
-  confirmLabel: string;
-  cancelLabel: string;
-  loading?: boolean;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  tone?: "default" | "danger";
+  busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -17,36 +20,43 @@ export default function ConfirmDialog({
   description,
   confirmLabel,
   cancelLabel,
-  loading = false,
+  tone = "default",
+  busy = false,
   onConfirm,
   onCancel,
 }: Props) {
+  const { t } = useLanguage();
+
   if (!open) return null;
 
+  const confirmClass =
+    tone === "danger"
+      ? "bg-red-600 text-white hover:bg-red-700"
+      : "bg-gray-900 text-white hover:bg-gray-800";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-      <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
+      <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-5 shadow-2xl">
         <div className="space-y-2">
           <h2 className="text-base font-semibold text-gray-950">{title}</h2>
           <p className="text-sm leading-6 text-gray-600">{description}</p>
         </div>
-
-        <div className="mt-5 flex gap-2">
+        <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            disabled={loading}
-            className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            disabled={busy}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            {cancelLabel}
+            {cancelLabel ?? t("cancel")}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            disabled={loading}
-            className="flex-1 rounded-xl bg-gray-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+            disabled={busy}
+            className={`rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50 ${confirmClass}`}
           >
-            {loading ? `${confirmLabel}...` : confirmLabel}
+            {confirmLabel ?? t("confirm")}
           </button>
         </div>
       </div>
