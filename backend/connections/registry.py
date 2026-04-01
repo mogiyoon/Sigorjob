@@ -20,6 +20,12 @@ DEFAULT_EXTERNAL_CONNECTIONS: list[Connection] = [
         "provider": "google",
         "kind": "external",
         "connection_type": "oauth_or_mcp",
+        "auth_type": "oauth_or_mcp",
+        "driver_id": "gmail",
+        "capabilities": ["send_email", "read_email"],
+        "capability_permissions": {
+            "send_email": ["email_send_access"],
+        },
         "required_permissions": ["external_connection_access", "email_send_access"],
         "configured": False,
         "verified": False,
@@ -36,6 +42,12 @@ DEFAULT_EXTERNAL_CONNECTIONS: list[Connection] = [
         "provider": "google",
         "kind": "external",
         "connection_type": "oauth_or_mcp",
+        "auth_type": "oauth_or_mcp",
+        "driver_id": "google_calendar",
+        "capabilities": ["create_calendar_event", "list_calendar_events"],
+        "capability_permissions": {
+            "create_calendar_event": ["calendar_event_creation"],
+        },
         "required_permissions": ["external_connection_access", "calendar_event_creation"],
         "configured": False,
         "verified": False,
@@ -52,6 +64,10 @@ DEFAULT_EXTERNAL_CONNECTIONS: list[Connection] = [
         "provider": "mcp",
         "kind": "external",
         "connection_type": "runtime",
+        "auth_type": "runtime",
+        "driver_id": "mcp_runtime",
+        "capabilities": [],
+        "capability_permissions": {},
         "required_permissions": ["external_connection_access", "mcp_runtime_access"],
         "configured": False,
         "verified": False,
@@ -63,6 +79,24 @@ DEFAULT_EXTERNAL_CONNECTIONS: list[Connection] = [
     },
 ]
 
+DEFAULT_CUSTOM_CONNECTOR: Connection = {
+    "provider": "custom",
+    "kind": "external",
+    "connection_type": "custom",
+    "auth_type": "manual",
+    "driver_id": "template_connector",
+    "capabilities": [],
+    "capability_permissions": {},
+    "required_permissions": ["external_connection_access"],
+    "configured": False,
+    "verified": False,
+    "available": True,
+    "account_label": None,
+    "metadata": {},
+    "status": "available",
+    "next_action": "connect",
+}
+
 
 def list_connections() -> list[Connection]:
     items: list[Connection] = [
@@ -70,6 +104,7 @@ def list_connections() -> list[Connection]:
         _build_ai_connection(),
     ]
     items.extend(_build_external_connections())
+    items.extend(_build_custom_connections())
     return items
 
 
@@ -106,6 +141,70 @@ def update_external_connection(
     stored[connection_id] = current
     config_store.set("external_connections", stored)
     return get_connection(connection_id)
+
+
+def upsert_custom_connection(
+    connection_id: str,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    provider: str | None = None,
+    auth_type: str | None = None,
+    driver_id: str | None = None,
+    capabilities: list[str] | None = None,
+    capability_permissions: dict[str, list[str]] | None = None,
+    configured: bool | None = None,
+    verified: bool | None = None,
+    account_label: str | None = None,
+    available: bool | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> Connection | None:
+    cleaned_id = connection_id.strip()
+    if not cleaned_id:
+        return None
+
+    stored = config_store.get("custom_connectors", {})
+    current = dict(stored.get(cleaned_id, {}))
+    if title is not None:
+        current["title"] = title
+    if description is not None:
+        current["description"] = description
+    if provider is not None:
+        current["provider"] = provider
+    if auth_type is not None:
+        current["auth_type"] = auth_type
+    if driver_id is not None:
+        current["driver_id"] = driver_id
+    if capabilities is not None:
+        current["capabilities"] = capabilities
+    if capability_permissions is not None:
+        current["capability_permissions"] = capability_permissions
+    if configured is not None:
+        current["configured"] = configured
+    if verified is not None:
+        current["verified"] = verified
+    if account_label is not None:
+        current["account_label"] = account_label
+    if available is not None:
+        current["available"] = available
+    if metadata is not None:
+        current["metadata"] = metadata
+
+    stored[cleaned_id] = current
+    config_store.set("custom_connectors", stored)
+    return get_connection(cleaned_id)
+
+
+def delete_custom_connection(connection_id: str) -> bool:
+    cleaned_id = connection_id.strip()
+    if not cleaned_id:
+        return False
+    stored = config_store.get("custom_connectors", {})
+    if cleaned_id not in stored:
+        return False
+    stored.pop(cleaned_id, None)
+    config_store.set("custom_connectors", stored)
+    return True
 
 
 def _build_mobile_connection() -> Connection:
@@ -188,6 +287,39 @@ def _build_external_connections() -> list[Connection]:
     for default in DEFAULT_EXTERNAL_CONNECTIONS:
         item = deepcopy(default)
         saved = stored.get(item["id"], {})
+        item["configured"] = bool(saved.get("configured", item["configured"]))
+        item["verified"] = bool(saved.get("verified", item["verified"]))
+        item["available"] = bool(saved.get("available", item["available"]))
+        item["account_label"] = saved.get("account_label", item["account_label"])
+        item["metadata"] = saved.get("metadata", item["metadata"])
+        if item["verified"]:
+            item["status"] = "connected"
+            item["next_action"] = "manage"
+        elif item["configured"]:
+            item["status"] = "configured"
+            item["next_action"] = "verify"
+        elif item["available"]:
+            item["status"] = "available"
+            item["next_action"] = "connect"
+        items.append(item)
+    return items
+
+
+def _build_custom_connections() -> list[Connection]:
+    stored = config_store.get("custom_connectors", {})
+    items: list[Connection] = []
+    for connection_id, saved in stored.items():
+        if not isinstance(saved, dict):
+            continue
+        item = deepcopy(DEFAULT_CUSTOM_CONNECTOR)
+        item["id"] = connection_id
+        item["title"] = saved.get("title") or connection_id
+        item["description"] = saved.get("description") or "User-defined external connector."
+        item["provider"] = saved.get("provider") or item["provider"]
+        item["auth_type"] = saved.get("auth_type") or item["auth_type"]
+        item["driver_id"] = saved.get("driver_id") or item["driver_id"]
+        item["capabilities"] = list(saved.get("capabilities") or item["capabilities"])
+        item["capability_permissions"] = dict(saved.get("capability_permissions") or item["capability_permissions"])
         item["configured"] = bool(saved.get("configured", item["configured"]))
         item["verified"] = bool(saved.get("verified", item["verified"]))
         item["available"] = bool(saved.get("available", item["available"]))

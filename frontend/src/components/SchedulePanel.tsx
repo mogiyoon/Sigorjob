@@ -1,7 +1,15 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { createSchedule, deleteSchedule, ScheduleItem } from "@/lib/api";
+import { FormEvent, useEffect, useState } from "react";
+import {
+  createCustomCommand,
+  createSchedule,
+  deleteCustomCommand,
+  deleteSchedule,
+  listCustomCommands,
+  ScheduleItem,
+  type CustomCommandItem,
+} from "@/lib/api";
 import { useLanguage } from "@/components/LanguageProvider";
 
 interface Props {
@@ -15,17 +23,25 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
   const [command, setCommand] = useState("");
   const [cron, setCron] = useState("0 9 * * *");
   const [saving, setSaving] = useState(false);
+  const [customCommands, setCustomCommands] = useState<CustomCommandItem[]>([]);
+  const [trigger, setTrigger] = useState("");
+  const [actionText, setActionText] = useState("");
+  const [matchType, setMatchType] = useState<"contains" | "exact">("contains");
+  const [savingCustomCommand, setSavingCustomCommand] = useState(false);
+
+  const refreshCustomCommands = async () => {
+    const data = await listCustomCommands();
+    setCustomCommands(data.custom_commands);
+  };
+
+  useEffect(() => {
+    refreshCustomCommands();
+  }, []);
 
   const sortedSchedules = [...schedules].sort((a, b) => {
     const left = a.next_run_at ? new Date(a.next_run_at).getTime() : Number.MAX_SAFE_INTEGER;
     const right = b.next_run_at ? new Date(b.next_run_at).getTime() : Number.MAX_SAFE_INTEGER;
     return left - right;
-  });
-
-  console.warn("[routines] SchedulePanel render", {
-    schedules: schedules.length,
-    sortedSchedules: sortedSchedules.length,
-    scheduleIds: sortedSchedules.map((schedule) => schedule.schedule_id),
   });
 
   const quickCrons = [
@@ -50,6 +66,25 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
       onChanged();
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleCreateCustomCommand(e: FormEvent) {
+    e.preventDefault();
+    if (!trigger.trim() || !actionText.trim() || savingCustomCommand) return;
+    setSavingCustomCommand(true);
+    try {
+      await createCustomCommand({
+        trigger: trigger.trim(),
+        action_text: actionText.trim(),
+        match_type: matchType,
+      });
+      setTrigger("");
+      setActionText("");
+      setMatchType("contains");
+      await refreshCustomCommands();
+    } finally {
+      setSavingCustomCommand(false);
     }
   }
 
@@ -87,55 +122,120 @@ export default function SchedulePanel({ schedules, onChanged }: Props) {
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-        <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-900">{t("add_schedule")}</p>
-            <p className="text-xs text-gray-500">
-              {t("schedule_form_desc")}
-            </p>
-          </div>
+        <div className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-gray-900">{t("add_schedule")}</p>
+              <p className="text-xs text-gray-500">
+                {t("schedule_form_desc")}
+              </p>
+            </div>
 
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("schedule_name_placeholder")}
-            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-          />
-          <textarea
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            placeholder={t("command_to_run")}
-            rows={3}
-            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-          />
-          <input
-            value={cron}
-            onChange={(e) => setCron(e.target.value)}
-            placeholder={t("repeat_time_placeholder")}
-            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-mono"
-          />
-          <div className="flex flex-wrap gap-2">
-            {quickCrons.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setCron(preset.value)}
-                className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saving ? t("adding_schedule") : t("add_schedule")}
-          </button>
-        </form>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("schedule_name_placeholder")}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+            <textarea
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              placeholder={t("command_to_run")}
+              rows={3}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+            <input
+              value={cron}
+              onChange={(e) => setCron(e.target.value)}
+              placeholder={t("repeat_time_placeholder")}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-mono"
+            />
+            <div className="flex flex-wrap gap-2">
+              {quickCrons.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => setCron(preset.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? t("adding_schedule") : t("add_schedule")}
+            </button>
+          </form>
+
+          <form onSubmit={handleCreateCustomCommand} className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-gray-900">{t("custom_command_title")}</p>
+              <p className="text-xs text-gray-500">{t("custom_command_desc")}</p>
+            </div>
+            <input
+              value={trigger}
+              onChange={(e) => setTrigger(e.target.value)}
+              placeholder={t("custom_command_trigger_placeholder")}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+            <select
+              value={matchType}
+              onChange={(e) => setMatchType(e.target.value as "contains" | "exact")}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="contains">{t("match_contains")}</option>
+              <option value="exact">{t("match_exact")}</option>
+            </select>
+            <textarea
+              value={actionText}
+              onChange={(e) => setActionText(e.target.value)}
+              placeholder={t("custom_command_action_placeholder")}
+              rows={3}
+              className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={savingCustomCommand}
+              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {savingCustomCommand ? t("saving") : t("add_custom_command")}
+            </button>
+          </form>
+        </div>
 
         <div className="space-y-3">
+          {customCommands.length > 0 && (
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-gray-900">{t("custom_command_saved")}</p>
+              {customCommands.map((item) => (
+                <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 break-words">{item.trigger}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {item.match_type === "exact" ? t("match_exact") : t("match_contains")}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        await deleteCustomCommand(item.id);
+                        await refreshCustomCommands();
+                      }}
+                      className="rounded-full border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                    >
+                      {t("delete")}
+                    </button>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-gray-600">{item.action_text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {sortedSchedules.map((schedule) => (
             <div key={schedule.schedule_id} className="rounded-2xl border border-gray-200 p-4">
               <div className="flex items-start justify-between gap-3">
