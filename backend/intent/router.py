@@ -3,11 +3,12 @@ import yaml
 from pathlib import Path
 from orchestrator.task import Task, Step
 from ai import agent as ai_agent
-from ai import reviewer as ai_reviewer
 from ai.runtime import has_api_key
+from custom_commands import match_custom_command
 from intent import risk_evaluator
 from intent.normalizer import (
     _looks_like_automation_request,
+    allows_browser_fallback,
     build_ai_assisted_browser_intent,
     build_last_resort_intent,
     detect_intent,
@@ -15,10 +16,19 @@ from intent.normalizer import (
 )
 from plugins import load_plugin_rules
 from logger.logger import get_logger
+from debug_trace import record_task_trace
 
 logger = get_logger(__name__)
 
 _rules: list[dict] = []
+_TEXT_REQUIRED_TOOLS = {
+    "calendar_helper",
+    "communication_helper",
+    "reminder_helper",
+    "route_helper",
+    "translation_helper",
+    "weather_alert_helper",
+}
 
 
 def load_rules():
@@ -29,13 +39,101 @@ def load_rules():
     _rules = [*base_rules, *load_plugin_rules()]
 
 
-async def route(command: str) -> Task:
+async def route(command: str, context: dict | None = None) -> Task:
     """명령어를 받아 Task 생성. 비AI 우선 → 실패 시 AI가 전체를 이어받음."""
     if not _rules:
         load_rules()
 
-    normalized_command = normalize_command(command)
-    task = Task(command=normalized_command)
+    clarification = _build_clarification_context(command, context or {})
+    normalized_command = normalize_command(clarification["analysis_command"])
+    task = Task(command=clarification["original_command"] or normalized_command)
+    await record_task_trace(
+        task.id,
+        stage="router",
+        event="route_started",
+        status=task.status,
+        detail={
+            "command_length": len(command or ""),
+            "normalized_length": len(normalized_command or ""),
+            "clarification_history_count": len(clarification["history"]),
+        },
+    )
+
+    if has_api_key():
+        await record_task_trace(
+            task.id,
+            stage="router",
+            event="clarification_review_started",
+            detail={"history_count": len(clarification["history"])},
+        )
+        clarification_review = await ai_agent.request_clarification(
+            clarification["analysis_command"],
+            clarification["history"],
+        )
+        if clarification_review and clarification_review.get("needs_clarification"):
+            question = str(clarification_review.get("question") or "").strip()
+            if question:
+                if len(clarification["history"]) >= 3:
+                    task.status = "failed"
+                    task.summary = "질문을 세 번 주고받았지만 아직 요청을 명확히 이해하지 못했습니다."
+                    task.error = task.summary
+                    task.result_data = {
+                        "clarification": {
+                            "original_command": clarification["original_command"],
+                            "attempt": len(clarification["history"]),
+                            "max_attempts": 3,
+                            "history": clarification["history"],
+                            "question": question,
+                        }
+                    }
+                    await record_task_trace(
+                        task.id,
+                        stage="router",
+                        event="clarification_limit_reached",
+                        status="failed",
+                        detail={"history_count": len(clarification["history"]), "max_attempts": 3},
+                    )
+                    return task
+
+                task.status = "needs_clarification"
+                task.summary = question
+                task.result_data = {
+                    "clarification": {
+                        "original_command": clarification["original_command"],
+                        "attempt": len(clarification["history"]) + 1,
+                        "max_attempts": 3,
+                        "history": clarification["history"],
+                        "question": question,
+                        }
+                    }
+                await record_task_trace(
+                    task.id,
+                    stage="router",
+                    event="clarification_requested",
+                    status="needs_clarification",
+                    detail={"next_attempt": len(clarification["history"]) + 1, "max_attempts": 3},
+                )
+                return task
+
+    custom_command = match_custom_command(normalized_command)
+    if custom_command:
+        logger.info(f"[{task.id}] custom command matched: {custom_command['id']}")
+        await record_task_trace(
+            task.id,
+            stage="router",
+            event="custom_command_matched",
+            detail={"custom_command_id": custom_command["id"], "match_type": custom_command["match_type"]},
+        )
+        normalized_command = normalize_command(str(custom_command["action_text"]))
+        task.intent = str(custom_command["action_text"])
+        task.result_data = {
+            "custom_command": {
+                "id": custom_command["id"],
+                "trigger": custom_command["trigger"],
+                "match_type": custom_command["match_type"],
+                "action_text": custom_command["action_text"],
+            }
+        }
 
     # 1. 규칙 매칭 시도
     step = _match_rules(normalized_command)
@@ -48,25 +146,46 @@ async def route(command: str) -> Task:
                 description=normalized_intent.description,
             )
     if step:
-        step = await _maybe_preflight_step(normalized_command, step)
+        _hydrate_step_params(step, normalized_command)
         logger.info(f"[{task.id}] rule matched: {step.tool}")
         task.intent = normalized_command
         task.steps = [step]
         _annotate_risk(task)
+        await record_task_trace(
+            task.id,
+            stage="router",
+            event="rule_matched",
+            status=task.status,
+            detail={"tool": step.tool, "risk_level": task.risk_level},
+        )
         return task
 
     # 2. 비AI가 놓친 요청은 AI가 메인 에이전트처럼 이어받음
     logger.info(f"[{task.id}] no rule matched, calling AI")
+    await record_task_trace(
+        task.id,
+        stage="router",
+        event="ai_plan_requested",
+        detail={"reason": "no_rule_match"},
+    )
     plan = await ai_agent.plan(normalized_command)
     task.intent = plan.get("intent", normalized_command)
     task.steps = [
         Step(tool=s["tool"], params=s["params"], description=s.get("description", ""))
         for s in plan.get("steps", [])
     ]
+    for step in task.steps:
+        _hydrate_step_params(step, normalized_command)
     if task.steps and _looks_like_automation_request(normalized_command):
         only_browser = all(step.tool == "browser" for step in task.steps)
         if only_browser:
             logger.info(f"[{task.id}] AI returned browser-only plan for automation request, retrying helper fallback")
+            await record_task_trace(
+                task.id,
+                stage="router",
+                event="browser_only_plan_rejected",
+                detail={"step_count": len(task.steps)},
+            )
             task.steps = []
     if not task.steps:
         automation_hint = await ai_agent.automation_assist(normalized_command)
@@ -86,7 +205,13 @@ async def route(command: str) -> Task:
                 )
                 logger.info(f"[{task.id}] using AI automation fallback: {fallback_step.tool}")
                 task.steps = [fallback_step]
-        if not task.steps:
+                await record_task_trace(
+                    task.id,
+                    stage="router",
+                    event="ai_automation_fallback",
+                    detail={"tool": fallback_step.tool},
+                )
+        if not task.steps and allows_browser_fallback(normalized_command):
             ai_browser_hint = await ai_agent.browser_assist(normalized_command)
             if ai_browser_hint:
                 assisted_intent = build_ai_assisted_browser_intent(ai_browser_hint, normalized_command)
@@ -98,8 +223,21 @@ async def route(command: str) -> Task:
                     )
                     logger.info(f"[{task.id}] using AI browser fallback: {fallback_step.tool}")
                     task.steps = [fallback_step]
+                    await record_task_trace(
+                        task.id,
+                        stage="router",
+                        event="ai_browser_fallback",
+                        detail={"tool": fallback_step.tool},
+                    )
         if task.steps:
             _annotate_risk(task)
+            await record_task_trace(
+                task.id,
+                stage="router",
+                event="route_completed",
+                status=task.status,
+                detail={"step_count": len(task.steps), "risk_level": task.risk_level},
+            )
             return task
         if not has_api_key():
             fallback_intent = build_last_resort_intent(normalized_command)
@@ -111,32 +249,62 @@ async def route(command: str) -> Task:
                 )
                 logger.info(f"[{task.id}] using last-resort fallback: {fallback_step.tool}")
                 task.steps = [fallback_step]
+                await record_task_trace(
+                    task.id,
+                    stage="router",
+                    event="last_resort_fallback",
+                    detail={"tool": fallback_step.tool},
+                )
     _annotate_risk(task)
+    await record_task_trace(
+        task.id,
+        stage="router",
+        event="route_completed",
+        status=task.status,
+        detail={"step_count": len(task.steps), "risk_level": task.risk_level},
+    )
     return task
 
 
-async def _maybe_preflight_step(command: str, step: Step) -> Step:
-    review = await ai_reviewer.preflight(
-        command,
-        {
-            "tool": step.tool,
-            "params": step.params,
-            "description": step.description,
-        },
-    )
-    if not review or review.get("acceptable", True):
-        return step
+def _build_clarification_context(command: str, context: dict) -> dict:
+    clarification = context.get("clarification") if isinstance(context, dict) else None
+    if not isinstance(clarification, dict):
+        return {
+            "original_command": command.strip(),
+            "analysis_command": command.strip(),
+            "history": [],
+        }
 
-    retry_step = review.get("retry_step") or {}
-    if retry_step.get("tool") and isinstance(retry_step.get("params"), dict):
-        logger.info(f"AI preflight replaced {step.tool} with {retry_step['tool']}")
-        return Step(
-            tool=retry_step["tool"],
-            params=retry_step["params"],
-            description=retry_step.get("description", step.description),
-        )
+    original_command = str(clarification.get("original_command") or command).strip()
+    history = clarification.get("history") or []
+    normalized_history: list[dict[str, str]] = []
+    if isinstance(history, list):
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            question = str(item.get("question") or "").strip()
+            answer = str(item.get("answer") or "").strip()
+            if question and answer:
+                normalized_history.append({"question": question, "answer": answer})
 
-    return step
+    pending_question = str(clarification.get("question") or "").strip()
+    latest_answer = command.strip()
+    if pending_question and latest_answer:
+        normalized_history.append({"question": pending_question, "answer": latest_answer})
+
+    lines = [original_command]
+    if normalized_history:
+        lines.append("")
+        lines.append("Follow-up answers:")
+        for index, item in enumerate(normalized_history, start=1):
+            lines.append(f"Q{index}. {item['question']}")
+            lines.append(f"A{index}. {item['answer']}")
+
+    return {
+        "original_command": original_command,
+        "analysis_command": "\n".join(lines).strip(),
+        "history": normalized_history,
+    }
 
 
 def _match_rules(command: str) -> Step | None:
@@ -168,6 +336,13 @@ def _intent_tool(category: str) -> str:
         "system_info": "system_info",
     }
     return mapping[category]
+
+
+def _hydrate_step_params(step: Step, command: str) -> None:
+    params = step.params if isinstance(step.params, dict) else {}
+    if step.tool in _TEXT_REQUIRED_TOOLS and not str(params.get("text") or "").strip():
+        params["text"] = command
+    step.params = params
 
 
 def _resolve_params(template: dict, match: re.Match) -> dict:

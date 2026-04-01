@@ -15,6 +15,7 @@ from gateway.routes.pair import router as pair_router
 from gateway.routes.setup import router as setup_router
 from gateway.routes.approval import router as approval_router
 from gateway.routes.mobile_notifications import router as mobile_notifications_router
+from gateway.routes.custom_commands import router as custom_commands_router
 from gateway.routes.schedule import router as schedule_router
 from gateway.routes.widget import router as widget_router
 from gateway.middleware.auth import TokenAuthMiddleware
@@ -98,6 +99,7 @@ app.include_router(pair_router)
 app.include_router(command_router)
 app.include_router(approval_router)
 app.include_router(mobile_notifications_router)
+app.include_router(custom_commands_router)
 app.include_router(schedule_router)
 app.include_router(widget_router)
 

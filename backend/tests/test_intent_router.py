@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from intent import router as intent_router
 from intent.normalizer import (
+    allows_browser_fallback,
     build_ai_assisted_browser_intent,
     build_last_resort_intent,
     detect_intent,
@@ -160,6 +161,16 @@ class IntentNormalizerTests(unittest.TestCase):
         decoded_url = unquote_plus(intent.params["url"])
         self.assertIn("google.com/search", decoded_url)
         self.assertIn("토스 상장 관련 내용", decoded_url)
+
+    def test_build_last_resort_intent_blocks_generic_non_search_requests(self):
+        intent = build_last_resort_intent("합주 추가해줄래")
+        self.assertIsNone(intent)
+
+    def test_allows_browser_fallback_only_for_explicit_web_requests(self):
+        self.assertTrue(allows_browser_fallback("유튜브에서 드럼 연습 영상 찾아줘"))
+        self.assertTrue(allows_browser_fallback("토스 상장 관련 내용 검색"))
+        self.assertFalse(allows_browser_fallback("합주 추가해줄래"))
+        self.assertFalse(allows_browser_fallback("오늘 일정 정리해줘"))
 
     def test_build_ai_assisted_browser_intent_for_shopping(self):
         intent = build_ai_assisted_browser_intent(

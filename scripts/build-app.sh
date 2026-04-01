@@ -1,5 +1,5 @@
 #!/bin/bash
-# 전체 앱 빌드: backend → frontend → tauri
+# 전체 앱 빌드: frontend → backend → tauri
 # 기본 결과물: src-tauri/target/release/bundle/
 
 set -euo pipefail
@@ -27,18 +27,7 @@ fi
 echo "=== [0/3] Check distribution readiness ==="
 bash "$ROOT/scripts/check-dist-readiness.sh" --with-remote
 
-echo "=== [1/3] Build Python backend ==="
-bash "$ROOT/scripts/build-backend.sh"
-
-if [ ! -f "$BACKEND_BIN" ]; then
-  echo "Backend sidecar not found after build: $BACKEND_BIN"
-  exit 1
-fi
-
-echo "=== [1.5/3] Stage bundled cloudflared ==="
-bash "$ROOT/scripts/stage-cloudflared.sh"
-
-echo "=== [2/3] Build Next.js frontend ==="
+echo "=== [1/3] Build Next.js frontend ==="
 cd "$ROOT/frontend"
 npm install
 npm run build  # next.config.js에서 output: "export" 활성화 필요
@@ -47,6 +36,18 @@ if [ ! -f "$FRONTEND_DIST" ]; then
   echo "Frontend export is missing: $FRONTEND_DIST"
   exit 1
 fi
+
+echo "=== [2/3] Build Python backend ==="
+cd "$ROOT"
+bash "$ROOT/scripts/build-backend.sh"
+
+if [ ! -f "$BACKEND_BIN" ]; then
+  echo "Backend sidecar not found after build: $BACKEND_BIN"
+  exit 1
+fi
+
+echo "=== [2.5/3] Stage bundled cloudflared ==="
+bash "$ROOT/scripts/stage-cloudflared.sh"
 
 echo "=== [3/3] Build Tauri app ==="
 cd "$ROOT"

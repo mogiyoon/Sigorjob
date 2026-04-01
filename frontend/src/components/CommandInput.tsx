@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useLanguage } from "@/components/LanguageProvider";
 
 interface Props {
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => Promise<boolean | void>;
   loading: boolean;
 }
 
@@ -12,11 +12,13 @@ export default function CommandInput({ onSubmit, loading }: Props) {
   const [text, setText] = useState("");
   const { t } = useLanguage();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() || loading) return;
-    onSubmit(text.trim());
-    setText("");
+    const submitted = await onSubmit(text.trim());
+    if (submitted !== false) {
+      setText("");
+    }
   };
 
   return (

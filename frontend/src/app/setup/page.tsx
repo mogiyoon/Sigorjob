@@ -4,14 +4,17 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/components/LanguageProvider";
+import { openExternalUrl } from "@/lib/external";
 import {
+  deleteCustomConnection,
   disconnectTunnel,
   getSetupStatus,
   localApiFetch,
-  restartQuickTunnel,
   sendTestMobileNotification,
   type ConnectionItem,
+  type CustomConnectionRequest,
   type PermissionItem,
+  upsertCustomConnection,
   updatePermission,
 } from "@/lib/api";
 
@@ -50,8 +53,13 @@ export default function SetupPage() {
   const [mobileMessage, setMobileMessage] = useState("");
   const [notificationTesting, setNotificationTesting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [restartingQuickTunnel, setRestartingQuickTunnel] = useState(false);
   const [showAiErrorDetails, setShowAiErrorDetails] = useState(false);
+  const [customConnectionTitle, setCustomConnectionTitle] = useState("");
+  const [customConnectionUrlTemplate, setCustomConnectionUrlTemplate] = useState("");
+  const [customConnectionTitleTemplate, setCustomConnectionTitleTemplate] = useState("");
+  const [customConnectionMessage, setCustomConnectionMessage] = useState("");
+  const [customConnectionSaving, setCustomConnectionSaving] = useState(false);
+  const [showConnectorAdvanced, setShowConnectorAdvanced] = useState(false);
 
   const getConnectionBadgeClass = (connection: ConnectionItem) => {
     if (connection.verified) return "bg-green-100 text-green-700";
@@ -116,14 +124,7 @@ export default function SetupPage() {
 
   const refreshStatus = async () => {
     try {
-      console.warn("[mobile-setup] refresh status start");
       const data = (await getSetupStatus()) as SetupStatus;
-      console.warn("[mobile-setup] refresh status success", {
-        tunnelMode: data.tunnel_mode,
-        tunnelActive: data.tunnel_active,
-        tunnelUrl: data.tunnel_url,
-        tunnelError: data.tunnel_error,
-      });
       setStatus(data);
       if (data.tunnel_mode) {
         setSelectedMode(data.tunnel_mode);
@@ -132,8 +133,8 @@ export default function SetupPage() {
         setTunnelUrl(data.tunnel_url);
         setStep("done");
       }
-    } catch (error) {
-      console.error("[mobile-setup] refresh status failed", error);
+    } catch {
+      // ignore initial status fetch failures
     }
   };
 
@@ -143,14 +144,26 @@ export default function SetupPage() {
       setOpenedFromSettings(params.get("source") === "settings");
     }
     refreshStatus();
+    const interval = setInterval(refreshStatus, 3000);
+    return () => clearInterval(interval);
   }, []);
 
+  const waitForTunnelReady = async (timeoutMs = 12000) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const latest = (await getSetupStatus()) as SetupStatus;
+      setStatus(latest);
+      if (latest.tunnel_active && latest.tunnel_url) {
+        setTunnelUrl(latest.tunnel_url);
+        setStep("done");
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    return false;
+  };
+
   const handleConnect = async () => {
-    console.warn("[mobile-setup] connect button clicked", {
-      selectedMode,
-      step,
-      hasToken: Boolean(token.trim()),
-    });
     if (selectedMode === "cloudflare" && !token.trim()) return;
     setStep("connecting");
     setError("");
@@ -165,22 +178,18 @@ export default function SetupPage() {
               method: "POST",
               body: JSON.stringify({ cloudflare_tunnel_token: token.trim() }),
             });
-      console.warn("[mobile-setup] connect response received", {
-        selectedMode,
-        status: res.status,
-        ok: res.ok,
-      });
       const data = await res.json();
-      console.warn("[mobile-setup] connect payload", data);
       if (data.success) {
         setTunnelUrl(data.tunnel_url);
         setStep("done");
       } else {
-        setError(data.error ?? t("connect_failed", "Connection failed. Check your settings and try again."));
-        setStep(selectedMode === "cloudflare" ? "token" : "intro");
+        const readyAfterDelay = selectedMode === "quick" ? await waitForTunnelReady() : false;
+        if (!readyAfterDelay) {
+          setError(data.error ?? t("connect_failed", "Connection failed. Check your settings and try again."));
+          setStep(selectedMode === "cloudflare" ? "token" : "intro");
+        }
       }
-    } catch (error) {
-      console.error("[mobile-setup] connect failed", error);
+    } catch {
       setError(t("backend_unreachable", "Cannot reach the backend. Make sure the app is running."));
       setStep(selectedMode === "cloudflare" ? "token" : "intro");
     }
@@ -280,17 +289,11 @@ export default function SetupPage() {
   };
 
   const handleDisconnectTunnel = async () => {
-    console.warn("[mobile-setup] disconnect button clicked", {
-      tunnelUrl,
-      tunnelMode: status?.tunnel_mode,
-      tunnelActive: status?.tunnel_active,
-    });
     setDisconnecting(true);
     setMobileMessage("");
     setError("");
     try {
       await disconnectTunnel();
-      console.warn("[mobile-setup] disconnect success");
       setTunnelUrl("");
       setStatus((current) =>
         current
@@ -307,41 +310,136 @@ export default function SetupPage() {
       setStep("intro");
       setMobileMessage(t("mobile_disconnected_message", "Phone connection has been turned off."));
       await refreshStatus();
-    } catch (error) {
-      console.error("[mobile-setup] disconnect failed", error);
+    } catch {
       setMobileMessage(t("mobile_disconnect_failed", "Could not turn off the phone connection."));
     } finally {
       setDisconnecting(false);
     }
   };
 
-  const handleRestartQuickTunnel = async () => {
-    console.warn("[mobile-setup] quick tunnel button clicked", {
-      tunnelUrl,
-      tunnelMode: status?.tunnel_mode,
-      tunnelActive: status?.tunnel_active,
-      step,
-    });
-    setRestartingQuickTunnel(true);
-    setError("");
-    setMobileMessage("");
+  const connectedExternalConnections = (status?.connections ?? []).filter(
+    (connection) => connection.kind === "external" && (connection.verified || connection.configured)
+  );
+
+  const availableExternalConnections = (status?.connections ?? []).filter(
+    (connection) => connection.kind === "external" && !connection.verified && !connection.configured
+  );
+  const customExternalConnections = (status?.connections ?? []).filter(
+    (connection) => connection.kind === "external" && connection.driver_id === "template_connector"
+  );
+
+  const groupedPermissions = (status?.permissions ?? []).reduce<Record<string, PermissionItem[]>>((acc, permission) => {
+    const key = permission.group || "advanced";
+    acc[key] = [...(acc[key] ?? []), permission];
+    return acc;
+  }, {});
+
+  const renderPermissionRow = (permission: PermissionItem) => (
+    <div
+      key={permission.id}
+      className="rounded-2xl border border-gray-200 bg-white p-4 flex items-start justify-between gap-4"
+    >
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-900">{permission.title}</p>
+          {permission.risk === "high" && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+              {t("risk_high", "Caution")}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-600 leading-5">{permission.description}</p>
+        <p className="text-xs text-gray-500">{t("storage_location")}: {permission.source}</p>
+      </div>
+      <button
+        onClick={() => handlePermissionToggle(permission)}
+        className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+          permission.granted
+            ? "bg-green-100 text-green-700"
+            : "bg-gray-200 text-gray-700"
+        }`}
+      >
+        {permission.granted ? t("permission_allowed") : t("permission_not_allowed")}
+      </button>
+    </div>
+  );
+
+  const buildCustomConnectionId = (title: string) =>
+    title
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9가-힣]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40) || "custom_connector";
+
+  const handleSaveCustomConnection = async () => {
+    if (!customConnectionTitle.trim() || !customConnectionUrlTemplate.trim()) {
+      setCustomConnectionMessage(t("custom_connector_required_fields", "Enter a name and URL template first."));
+      return;
+    }
+
+    setCustomConnectionSaving(true);
+    setCustomConnectionMessage("");
     try {
-      const data = await restartQuickTunnel();
-      console.warn("[mobile-setup] quick tunnel payload", data);
-      if (data.success) {
-        setTunnelUrl(data.tunnel_url ?? "");
-        setStep("done");
-        setMobileMessage(t("quick_tunnel_restarted"));
-        await refreshStatus();
-      } else {
-        setMobileMessage(data.error ?? t("quick_tunnel_restart_failed"));
+      const connectionId = buildCustomConnectionId(customConnectionTitle);
+      const payload: CustomConnectionRequest = {
+        connection_id: connectionId,
+        title: customConnectionTitle.trim(),
+        description: t(
+          "custom_connector_default_description",
+          "User-defined connector added from the settings screen."
+        ),
+        provider: "custom",
+        auth_type: "manual",
+        driver_id: "template_connector",
+        capabilities: ["create_calendar_event"],
+        capability_permissions: {
+          create_calendar_event: ["calendar_event_creation"],
+        },
+        configured: true,
+        verified: true,
+        available: true,
+        metadata: {
+          templates: {
+            create_calendar_event: {
+              url_template: customConnectionUrlTemplate.trim(),
+              title_template: customConnectionTitleTemplate.trim() || "{title} 일정 만들기",
+            },
+          },
+        },
+      };
+      const data = await upsertCustomConnection(payload);
+      if (!data.success) {
+        setCustomConnectionMessage(data.error || t("custom_connector_save_failed", "Could not save the custom connector."));
+        return;
       }
-    } catch (error) {
-      console.error("[mobile-setup] quick tunnel failed", error);
-      setMobileMessage(t("quick_tunnel_restart_failed"));
+      setCustomConnectionMessage(t("custom_connector_saved", "Custom connector saved."));
+      setCustomConnectionTitle("");
+      setCustomConnectionUrlTemplate("");
+      setCustomConnectionTitleTemplate("");
+      await refreshStatus();
+    } catch {
+      setCustomConnectionMessage(t("custom_connector_save_failed", "Could not save the custom connector."));
     } finally {
-      console.warn("[mobile-setup] quick tunnel finished");
-      setRestartingQuickTunnel(false);
+      setCustomConnectionSaving(false);
+    }
+  };
+
+  const handleDeleteCustomConnection = async (connectionId: string) => {
+    setCustomConnectionSaving(true);
+    setCustomConnectionMessage("");
+    try {
+      const data = await deleteCustomConnection(connectionId);
+      if (!data.success) {
+        setCustomConnectionMessage(data.error || t("custom_connector_delete_failed", "Could not remove the custom connector."));
+        return;
+      }
+      setCustomConnectionMessage(t("custom_connector_deleted", "Custom connector removed."));
+      await refreshStatus();
+    } catch {
+      setCustomConnectionMessage(t("custom_connector_delete_failed", "Could not remove the custom connector."));
+    } finally {
+      setCustomConnectionSaving(false);
     }
   };
 
@@ -456,14 +554,13 @@ export default function SetupPage() {
                 <p className="text-sm font-medium text-blue-900">Anthropic</p>
                 <p className="text-xs text-blue-700">{t("currently_supported")}</p>
               </div>
-              <a
-                href="https://docs.anthropic.com/en/api/getting-started"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => openExternalUrl("https://docs.anthropic.com/en/api/getting-started")}
                 className="text-sm font-medium text-blue-700 underline underline-offset-2"
               >
                 {t("issuance_guide")}
-              </a>
+              </button>
             </div>
             <p className="mt-2 text-xs text-blue-800 leading-5">
               {t("anthropic_issue_desc")}
@@ -475,14 +572,13 @@ export default function SetupPage() {
                 <p className="text-sm font-medium text-gray-900">OpenAI</p>
                 <p className="text-xs text-gray-600">{t("reference_link")}</p>
               </div>
-              <a
-                href="https://platform.openai.com/docs/quickstart"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => openExternalUrl("https://platform.openai.com/docs/quickstart")}
                 className="text-sm font-medium text-gray-700 underline underline-offset-2"
               >
                 {t("issuance_guide")}
-              </a>
+              </button>
             </div>
             <p className="mt-2 text-xs text-gray-700 leading-5">
               {t("openai_issue_desc")}
@@ -494,14 +590,13 @@ export default function SetupPage() {
                 <p className="text-sm font-medium text-gray-900">Google Gemini</p>
                 <p className="text-xs text-gray-600">{t("reference_link")}</p>
               </div>
-              <a
-                href="https://ai.google.dev/tutorials/setup"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => openExternalUrl("https://ai.google.dev/tutorials/setup")}
                 className="text-sm font-medium text-gray-700 underline underline-offset-2"
               >
                 {t("issuance_guide")}
-              </a>
+              </button>
             </div>
             <p className="mt-2 text-xs text-gray-700 leading-5">
               {t("gemini_issue_desc")}
@@ -518,6 +613,34 @@ export default function SetupPage() {
         <h2 className="font-semibold text-gray-900">{t("permissions_title")}</h2>
         <p className="text-sm text-gray-600">{t("permissions_short_desc", "Turn sensitive features on or off here.")}</p>
       </div>
+      {groupedPermissions.core_access && (
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-900">{t("core_permissions_title", "Core access")}</p>
+            <p className="text-xs text-gray-600 leading-5">
+              {t("core_permissions_desc", "These switches control the main Sigorjob experiences people notice first.")}
+            </p>
+          </div>
+          <div className="space-y-3">
+            {groupedPermissions.core_access.map(renderPermissionRow)}
+          </div>
+        </div>
+      )}
+      {groupedPermissions.service_extensions && (
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-900">{t("service_permissions_title", "Service extensions")}</p>
+            <p className="text-xs text-gray-600 leading-5">
+              {t("service_permissions_desc", "Use these when Gmail, Calendar, or future MCP-based add-ons should be available.")}
+            </p>
+          </div>
+          <div className="space-y-3">
+            {groupedPermissions.service_extensions
+              .filter((permission) => !permission.advanced)
+              .map(renderPermissionRow)}
+          </div>
+        </div>
+      )}
       {(status?.permissions ?? []).some((permission) => permission.risk === "high") && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2">
           <p className="text-sm font-medium text-amber-900">{t("sensitive_permissions_title", "Sensitive permissions")}</p>
@@ -527,67 +650,28 @@ export default function SetupPage() {
           <div className="space-y-3">
             {(status?.permissions ?? [])
               .filter((permission) => permission.risk === "high")
-              .map((permission) => (
-                <div
-                  key={permission.id}
-                  className="rounded-2xl border border-amber-200 bg-white p-4 flex items-start justify-between gap-4"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-gray-900">{permission.title}</p>
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                        {t("risk_high", "Caution")}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-600 leading-5">{permission.description}</p>
-                    <p className="text-xs text-gray-500">{t("storage_location")}: {permission.source}</p>
-                  </div>
-                  <button
-                    onClick={() => handlePermissionToggle(permission)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                      permission.granted
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-200 text-gray-700"
-                    }`}
-                  >
-                    {permission.granted ? t("permission_allowed") : t("permission_not_allowed")}
-                  </button>
-                </div>
-              ))}
+              .map(renderPermissionRow)}
           </div>
         </div>
       )}
-      <div className="space-y-3">
-        {(status?.permissions ?? [])
-          .filter((permission) => permission.risk !== "high")
-          .map((permission) => (
-          <div
-            key={permission.id}
-            className="rounded-2xl border border-gray-200 bg-gray-50 p-4 flex items-start justify-between gap-4"
-          >
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-gray-900">{permission.title}</p>
-              <p className="text-xs text-gray-600 leading-5">{permission.description}</p>
-              <p className="text-xs text-gray-500">{t("storage_location")}: {permission.source}</p>
-            </div>
-            <button
-              onClick={() => handlePermissionToggle(permission)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                permission.granted
-                  ? "bg-green-100 text-green-700"
-                  : "bg-gray-200 text-gray-700"
-              }`}
-            >
-              {permission.granted ? t("permission_allowed") : t("permission_not_allowed")}
-            </button>
+      {((groupedPermissions.service_extensions ?? []).some((permission) => permission.advanced) ||
+        (groupedPermissions.advanced ?? []).length > 0) && (
+        <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-900">{t("advanced_permissions_title", "Advanced permissions")}</p>
+            <p className="text-xs text-gray-600 leading-5">
+              {t("advanced_permissions_desc", "Keep rarely used or developer-oriented permissions tucked away here.")}
+            </p>
           </div>
-        ))}
-      </div>
+          <div className="space-y-3">
+            {(groupedPermissions.service_extensions ?? [])
+              .filter((permission) => permission.advanced)
+              .map(renderPermissionRow)}
+            {(groupedPermissions.advanced ?? []).map(renderPermissionRow)}
+          </div>
+        </div>
+      )}
     </div>
-  );
-
-  const externalConnections = (status?.connections ?? []).filter(
-    (connection) => connection.kind === "external"
   );
 
   const externalConnectionsCard = (
@@ -602,42 +686,198 @@ export default function SetupPage() {
             "Use one shared place for Gmail, Calendar, and future MCP tools."
           )}
         </p>
+        <p className="text-xs text-gray-500 leading-5">
+          {t(
+            "external_connections_separate_hint",
+            "This section only shows whether a service is connected. Actual permission switches live in the permission area below."
+          )}
+        </p>
       </div>
-      <div className="space-y-3">
-        {externalConnections.map((connection) => (
-          <div
-            key={connection.id}
-            className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-gray-900">{connection.title}</p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getConnectionBadgeClass(connection)}`}
-                  >
-                    {getConnectionStatusLabel(connection)}
-                  </span>
-                </div>
-                <p className="text-xs leading-5 text-gray-600">{connection.description}</p>
-              </div>
-              <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-500 border border-gray-200">
-                {connection.provider}
-              </span>
-            </div>
-            <p className="text-xs leading-5 text-gray-500">{getConnectionActionHint(connection)}</p>
-            <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-              {connection.required_permissions.map((permissionId) => (
-                <span
-                  key={permissionId}
-                  className="rounded-full border border-gray-200 bg-white px-2 py-1"
-                >
-                  {permissionId}
-                </span>
-              ))}
-            </div>
+      {connectedExternalConnections.length > 0 && (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-900">
+              {t("connected_services_title", "Connected or ready")}
+            </p>
+            <p className="text-xs text-gray-500 leading-5">
+              {t("connected_services_desc", "These services already have saved connection information or are ready to use.")}
+            </p>
           </div>
-        ))}
+          {connectedExternalConnections.map((connection) => (
+            <div
+              key={connection.id}
+              className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-900">{connection.title}</p>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getConnectionBadgeClass(connection)}`}
+                    >
+                      {getConnectionStatusLabel(connection)}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-5 text-gray-600">{connection.description}</p>
+                </div>
+                <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-500 border border-gray-200">
+                  {connection.provider}
+                </span>
+              </div>
+              <p className="text-xs leading-5 text-gray-500">{getConnectionActionHint(connection)}</p>
+              <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
+                {t(
+                  "connection_permissions_separate_hint",
+                  "If you want to allow real actions with this service, turn the related permission on in the permission section below."
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {availableExternalConnections.length > 0 && (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-900">
+              {t("available_services_title", "Available to connect")}
+            </p>
+            <p className="text-xs text-gray-500 leading-5">
+              {t("available_services_desc", "These are not connected yet. Once connection setup exists, they will move into the ready section above.")}
+            </p>
+          </div>
+          {availableExternalConnections.map((connection) => (
+            <div
+              key={connection.id}
+              className="rounded-2xl border border-dashed border-gray-200 bg-white p-4 space-y-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-900">{connection.title}</p>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getConnectionBadgeClass(connection)}`}
+                    >
+                      {getConnectionStatusLabel(connection)}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-5 text-gray-600">{connection.description}</p>
+                </div>
+                <span className="rounded-full bg-gray-50 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-500 border border-gray-200">
+                  {connection.provider}
+                </span>
+              </div>
+              <p className="text-xs leading-5 text-gray-500">{getConnectionActionHint(connection)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-gray-900">{t("custom_connectors_title", "Custom connectors")}</p>
+          <p className="text-xs text-gray-600 leading-5">
+            {t(
+              "custom_connectors_desc",
+              "Add shared connectors with capabilities and URL templates instead of building one-off service flows."
+            )}
+          </p>
+        </div>
+        <div className="grid gap-3">
+          <input
+            value={customConnectionTitle}
+            onChange={(e) => setCustomConnectionTitle(e.target.value)}
+            placeholder={t("custom_connector_title_placeholder", "Example: Team calendar")}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            value={customConnectionUrlTemplate}
+            onChange={(e) => setCustomConnectionUrlTemplate(e.target.value)}
+            placeholder={t("custom_connector_url_placeholder", "URL template, e.g. https://calendar.example.com/new?title={title}&dates={dates}")}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowConnectorAdvanced((prev) => !prev)}
+          className="w-fit rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
+        >
+          {showConnectorAdvanced ? t("hide_connector_advanced", "Hide advanced fields") : t("show_connector_advanced", "Show advanced fields")}
+        </button>
+        {showConnectorAdvanced && (
+          <div className="grid gap-3">
+            <input
+              value={customConnectionTitleTemplate}
+              onChange={(e) => setCustomConnectionTitleTemplate(e.target.value)}
+              placeholder={t("custom_connector_title_template_placeholder", "Title template, e.g. {title} schedule")}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+        )}
+        <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          {t(
+            "custom_connector_hint",
+            "The first UI only supports the create_calendar_event capability. Use placeholders like {title}, {details}, and {dates}."
+          )}
+        </div>
+        {customConnectionMessage && <p className="text-xs text-gray-600">{customConnectionMessage}</p>}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleSaveCustomConnection}
+            disabled={customConnectionSaving}
+            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {customConnectionSaving ? t("saving") : t("save_custom_connector", "Save connector")}
+          </button>
+        </div>
+        {customExternalConnections.length > 0 && (
+          <div className="space-y-2">
+            {customExternalConnections.map((connection) => (
+              <div key={connection.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 py-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-gray-900">{connection.title}</p>
+                  <p className="text-xs text-gray-500">{connection.id} · {connection.provider}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteCustomConnection(connection.id)}
+                  disabled={customConnectionSaving}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 disabled:opacity-50"
+                >
+                  {t("remove")}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const mobileOperationsCard = (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3 shadow-sm">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-gray-900">
+          {t("mobile_operations", "Mobile actions")}
+        </p>
+        <p className="text-xs text-gray-600 leading-5">
+          {t("mobile_operations_short_desc", "Send a test notification or disconnect and start again.")}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={handleTestNotification}
+          disabled={notificationTesting}
+          className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
+        >
+          {notificationTesting ? t("sending", "Sending...") : t("send_test_notification", "Send test notification")}
+        </button>
+        <button
+          onClick={handleDisconnectTunnel}
+          disabled={disconnecting}
+          className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+        >
+          {disconnecting ? t("disconnecting_short", "Disconnecting...") : t("disconnect_mobile_connection", "Disconnect phone connection")}
+        </button>
       </div>
     </div>
   );
@@ -711,6 +951,13 @@ export default function SetupPage() {
                       {t("mobile_setup_short_desc", "Choose a connection type and start right away.")}
                     </p>
                   </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                    {status?.tunnel_active
+                      ? t("mobile_ready_desc", "The mobile connection is ready.")
+                      : status?.tunnel_error
+                        ? `${t("connection_status_label", "Status")}: ${status.tunnel_error}`
+                        : t("mobile_setup_status_idle", "Press the button once and wait a few seconds while the connection opens.")}
+                  </div>
                   <div className="space-y-3">
                     <button
                       onClick={() => setSelectedMode("quick")}
@@ -763,51 +1010,17 @@ export default function SetupPage() {
                       }
                       className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
                     >
-                      {selectedMode === "quick" ? t("start_quick_tunnel") : t("setup_named_tunnel")}
+                      {selectedMode === "quick"
+                        ? t("start_quick_tunnel")
+                        : t("setup_named_tunnel")}
                     </button>
-                    {status?.tunnel_mode === "quick" && (
-                      <button
-                        onClick={handleRestartQuickTunnel}
-                        disabled={restartingQuickTunnel || status?.cloudflared_installed === false}
-                        className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 disabled:opacity-50"
-                      >
-                        {restartingQuickTunnel ? t("restarting_quick_tunnel") : t("restart_quick_tunnel")}
-                      </button>
-                    )}
-                    <a
-                      href="https://one.dash.cloudflare.com/"
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl("https://one.dash.cloudflare.com/")}
                       className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600"
                     >
                       {t("open_cloudflare_dashboard")}
-                    </a>
-                  </div>
-                  <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-gray-900">
-                        {t("mobile_operations", "Mobile actions")}
-                      </p>
-                      <p className="text-xs text-gray-600 leading-5">
-                        {t("mobile_operations_short_desc", "Send a test notification or disconnect and start again.")}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleTestNotification}
-                        disabled={notificationTesting}
-                        className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
-                      >
-                        {notificationTesting ? t("sending", "Sending...") : t("send_test_notification", "Send test notification")}
-                      </button>
-                      <button
-                        onClick={handleDisconnectTunnel}
-                        disabled={disconnecting}
-                        className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
-                      >
-                        {disconnecting ? t("disconnecting_short", "Disconnecting...") : t("disconnect_mobile_connection", "Disconnect phone connection")}
-                      </button>
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -889,52 +1102,19 @@ export default function SetupPage() {
               <div className="text-4xl">✓</div>
               <h1 className="text-xl font-bold text-gray-900">{t("connection_complete")}</h1>
             </div>
+            <div className="bg-green-50 border border-green-200 rounded-2xl p-4 space-y-2">
+              <p className="text-xs text-green-600">
+                {selectedMode === "quick" ? "Quick Tunnel" : t("named_tunnel")}
+              </p>
+              <p className="text-sm text-green-700 font-medium">{t("tunnel_url")}</p>
+              <p className="font-mono text-sm text-green-800 break-all">{tunnelUrl}</p>
+              <p className="text-xs text-green-600">
+                {t("open_remotely_desc")}
+              </p>
+            </div>
             <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
               <div className="space-y-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
-                  <div className="space-y-1">
-                    <h2 className="font-semibold text-gray-900">{t("mobile_connection", "Mobile Connect")}</h2>
-                    <p className="text-sm text-gray-600">
-                      {t("mobile_setup_short_desc", "Choose a connection type and start right away.")}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-green-100 bg-green-50 p-4 space-y-2">
-                    <p className="text-xs text-green-600">
-                      {selectedMode === "quick" ? "Quick Tunnel" : t("named_tunnel")}
-                    </p>
-                    <p className="text-sm text-green-700 font-medium">{t("tunnel_url")}</p>
-                    <p className="font-mono text-sm text-green-800 break-all">{tunnelUrl}</p>
-                    <p className="text-xs text-green-600">
-                      {t("open_remotely_desc")}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-gray-900">
-                        {t("mobile_operations", "Mobile actions")}
-                      </p>
-                      <p className="text-xs text-gray-600 leading-5">
-                        {t("mobile_operations_short_desc", "Send a test notification or disconnect and start again.")}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleTestNotification}
-                        disabled={notificationTesting}
-                        className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
-                      >
-                        {notificationTesting ? t("sending", "Sending...") : t("send_test_notification", "Send test notification")}
-                      </button>
-                      <button
-                        onClick={handleDisconnectTunnel}
-                        disabled={disconnecting}
-                        className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
-                      >
-                        {disconnecting ? t("disconnecting_short", "Disconnecting...") : t("disconnect_mobile_connection", "Disconnect phone connection")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                {mobileOperationsCard}
               </div>
               <div className="space-y-6">
                 {aiSettingsCard}

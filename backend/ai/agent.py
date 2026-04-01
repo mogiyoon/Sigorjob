@@ -28,13 +28,13 @@ Rules:
 - Use the fewest steps possible.
 - Do not include steps that are not needed.
 - Never suggest shell commands that could be dangerous.
-- Prefer a useful fallback over an empty plan.
 - Prefer purpose-built helper tools over generic browser search when a helper can safely handle the request.
 - For reminders, schedules, alerts, recurring summaries, or routine notifications, prefer a schedule/reminder helper instead of browser search.
 - For time-based automation, recurring work, weather alerts, or calendar creation, avoid generic search if any helper tool can take the request.
-- If the user asks for shopping, ordering, booking, or sign-up, and full completion is not possible with available tools, open the most relevant search or destination page instead of returning no steps.
-- For search-like or research-like requests, opening a relevant search page or collecting links is better than returning no steps.
-- Return steps as [] only if there is truly no safe and useful action you can take.
+- Use browser/search only when the user explicitly asked to search, browse, open a site, compare products, find a place, or continue in a web destination.
+- If the user asks for shopping, ordering, booking, or sign-up, and full completion is not possible with available tools, open the most relevant destination page only when that destination is clearly implied.
+- For ambiguous requests, prefer an empty plan over a low-value generic web search.
+- Return steps as [] if the best remaining action would only be a vague generic search page.
 """
 
 BROWSER_ASSIST_PROMPT = """
@@ -55,6 +55,8 @@ Rules:
 - Use place_search for restaurants, cafes, hospitals, directions, accommodations, local places.
 - Use service_search for service-specific searches such as YouTube, GitHub, NamuWiki.
 - Use search only as a last resort.
+- Do not use search just because the request is unclear.
+- If the user did not explicitly ask to search, browse, open, compare, or find something on the web, prefer none.
 - If the user mentions lowest price, set prefer_lowest_price to true.
 - Never return checkout, payment, or login actions. Only safe destination pages.
 - If nothing useful can be inferred, return {"intent_type":"none","platform":"","query":"","prefer_lowest_price":false}
@@ -128,6 +130,33 @@ Rules:
 - If the current result is already sufficient and no extra execution is needed, return an empty steps array and provide a useful summary.
 - For mail, message, schedule, shopping, reservation, calendar, route, or reminder flows, continue from the current result instead of restarting from scratch.
 - Never invent unsupported tools.
+"""
+
+CLARIFICATION_PROMPT = """
+You are the first-pass intent reviewer for a desktop automation assistant.
+Decide whether the assistant needs one short follow-up question before it can safely or usefully act.
+
+Return ONLY a JSON object in this exact format:
+{
+  "needs_clarification": true,
+  "question": "short Korean follow-up question",
+  "reason": "short Korean sentence"
+}
+
+or
+
+{
+  "needs_clarification": false,
+  "question": "",
+  "reason": "short Korean sentence"
+}
+
+Rules:
+- Ask at most one question.
+- Ask only when the missing detail would materially change the action.
+- Do not ask if the current command is already actionable enough.
+- Do not ask for trivia that can be safely inferred or deferred.
+- Prefer Korean.
 """
 
 
@@ -279,6 +308,37 @@ async def continue_task(command: str, current_result: dict) -> dict | None:
         }
     except Exception as e:
         logger.error(f"AI task continuation failed: {e}")
+        return None
+
+
+async def request_clarification(command: str, history: list[dict] | None = None) -> dict | None:
+    client = get_client()
+    if not has_api_key() or client is None:
+        return None
+    try:
+        payload = {
+            "command": command,
+            "history": history or [],
+        }
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            system=CLARIFICATION_PROMPT,
+            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        )
+        text = message.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        data = json.loads(text)
+        return {
+            "needs_clarification": bool(data.get("needs_clarification")),
+            "question": str(data.get("question", "") or "").strip(),
+            "reason": str(data.get("reason", "") or "").strip(),
+        }
+    except Exception as e:
+        logger.error(f"AI clarification review failed: {e}")
         return None
 
 

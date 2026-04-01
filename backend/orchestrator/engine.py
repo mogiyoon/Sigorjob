@@ -5,13 +5,13 @@ from datetime import datetime, timezone
 from orchestrator.task import Step, Task
 from orchestrator import result_quality
 from tools import registry
-from ai import agent as ai_agent
 from ai import summarizer
 from ai import reviewer as ai_reviewer
 from db.models import ApprovalRequest, ApprovalStatus, Task as TaskModel, TaskLog, TaskStatus
 from db.session import AsyncSessionLocal
 from logger.logger import get_logger
 from notifications.store import enqueue_notification
+from debug_trace import record_task_trace
 
 logger = get_logger(__name__)
 
@@ -19,6 +19,14 @@ logger = get_logger(__name__)
 async def save_pending(task: Task) -> None:
     async with AsyncSessionLocal() as session:
         await _update_db(task, session)
+        await record_task_trace(
+            task.id,
+            stage="orchestrator",
+            event="state_persisted",
+            status=task.status,
+            detail={"step_count": len(task.steps), "result_count": len(task.results)},
+            session=session,
+        )
 
 
 async def save_approval_request(task: Task) -> None:
@@ -26,6 +34,14 @@ async def save_approval_request(task: Task) -> None:
         task.status = "approval_required"
         task.summary = task.approval_reason or "승인이 필요한 작업입니다."
         await _update_db(task, session)
+        await record_task_trace(
+            task.id,
+            stage="orchestrator",
+            event="approval_saved",
+            status=task.status,
+            detail={"risk_level": task.risk_level, "step_count": len(task.steps)},
+            session=session,
+        )
         approval = ApprovalRequest(
             id=str(uuid.uuid4()),
             task_id=task.id,
@@ -46,10 +62,26 @@ async def run(task: Task, *, persist: bool = True) -> Task:
     async with AsyncSessionLocal() as session:
         task.status = "running"
         await _update_db(task, session)
+        await record_task_trace(
+            task.id,
+            stage="orchestrator",
+            event="run_started",
+            status=task.status,
+            detail={"step_count": len(task.steps)},
+            session=session,
+        )
         logger.info(f"[{task.id}] start — {task.command}")
         await _execute_steps(task, session=session)
         task.completed_at = datetime.now(timezone.utc)
         await _update_db(task, session)
+        await record_task_trace(
+            task.id,
+            stage="orchestrator",
+            event="run_finished",
+            status=task.status,
+            detail={"result_count": len(task.results), "has_error": bool(task.error)},
+            session=session,
+        )
         logger.info(f"[{task.id}] {task.status}")
 
     return task
@@ -57,20 +89,41 @@ async def run(task: Task, *, persist: bool = True) -> Task:
 
 async def _run_without_persistence(task: Task) -> Task:
     task.status = "running"
+    await record_task_trace(
+        task.id,
+        stage="orchestrator",
+        event="run_started_without_persistence",
+        status=task.status,
+        detail={"step_count": len(task.steps)},
+    )
     logger.info(f"[{task.id}] start — {task.command}")
     await _execute_steps(task, session=None)
     task.completed_at = datetime.now(timezone.utc)
+    await record_task_trace(
+        task.id,
+        stage="orchestrator",
+        event="run_finished_without_persistence",
+        status=task.status,
+        detail={"result_count": len(task.results), "has_error": bool(task.error)},
+    )
     logger.info(f"[{task.id}] {task.status}")
     return task
 
 
 async def _execute_steps(task: Task, session=None) -> None:
     review_budget = 1
-    postflight_budget = 1
     step_index = 0
     while step_index < len(task.steps):
         i = step_index
         step = task.steps[step_index]
+        await record_task_trace(
+            task.id,
+            stage="orchestrator",
+            event="step_started",
+            status=task.status,
+            detail={"step_index": i + 1, "tool": step.tool, "risk_level": step.risk_level},
+            session=session,
+        )
         tool = registry.get(step.tool)
         if tool is None:
             error = f"tool not found: {step.tool}"
@@ -78,6 +131,14 @@ async def _execute_steps(task: Task, session=None) -> None:
                 await _log(task.id, "error", error, session)
             task.status = "failed"
             task.error = error
+            await record_task_trace(
+                task.id,
+                stage="orchestrator",
+                event="tool_missing",
+                status=task.status,
+                detail={"step_index": i + 1, "tool": step.tool},
+                session=session,
+            )
             return
 
         if session is not None:
@@ -88,6 +149,21 @@ async def _execute_steps(task: Task, session=None) -> None:
         result["quality"] = quality.to_dict()
         step.result = result
         task.results.append(result)
+        await record_task_trace(
+            task.id,
+            stage="orchestrator",
+            event="step_completed",
+            status=task.status,
+            detail={
+                "step_index": i + 1,
+                "tool": step.tool,
+                "success": bool(result.get("success")),
+                "quality_status": quality.status,
+                "quality_blocking": quality.blocking,
+                "needs_ai_review": quality.needs_ai_review,
+            },
+            session=session,
+        )
 
         if not result.get("success"):
             error = result.get("error", "unknown error")
@@ -96,46 +172,15 @@ async def _execute_steps(task: Task, session=None) -> None:
             task.status = "failed"
             task.error = error
             task.summary = str(error)
-            return
-
-        if _should_postflight_review(step, result) and postflight_budget > 0:
-            postflight_budget -= 1
-            review = await ai_reviewer.postflight(
-                task.command,
-                {
-                    "tool": step.tool,
-                    "params": step.params,
-                    "description": step.description,
-                },
-                result,
+            await record_task_trace(
+                task.id,
+                stage="orchestrator",
+                event="step_failed",
+                status=task.status,
+                detail={"step_index": i + 1, "tool": step.tool},
+                session=session,
             )
-            if review and not review.get("acceptable", True):
-                continuation_steps = await _build_ai_takeover_steps(task)
-                if continuation_steps:
-                    task.steps[step_index + 1:step_index + 1] = continuation_steps
-                    if session is not None:
-                        await _log(task.id, "warning", f"step {i+1} AI postflight handed off to AI continuation", session)
-                    step_index += 1
-                    continue
-
-                retry_step = review.get("retry_step") or {}
-                if retry_step.get("tool") and isinstance(retry_step.get("params"), dict):
-                    inserted = Step(
-                        tool=retry_step["tool"],
-                        params=retry_step["params"],
-                        description=retry_step.get("description", "ai_postflight_retry"),
-                    )
-                    task.steps.insert(step_index + 1, inserted)
-                    if session is not None:
-                        await _log(task.id, "warning", f"step {i+1} AI postflight requested retry: {inserted.description}", session)
-                    step_index += 1
-                    continue
-                if session is not None:
-                    await _log(task.id, "error", f"step {i+1} AI postflight rejected result: {review.get('reason', 'result mismatch')}", session)
-                task.status = "failed"
-                task.error = str(review.get("reason") or "AI postflight rejected the final action.")
-                task.summary = task.error
-                return
+            return
 
         if quality.needs_ai_review and review_budget > 0:
             review_budget -= 1
@@ -151,6 +196,19 @@ async def _execute_steps(task: Task, session=None) -> None:
             )
             if review:
                 result["ai_review"] = review
+                await record_task_trace(
+                    task.id,
+                    stage="orchestrator",
+                    event="ai_review_completed",
+                    status=task.status,
+                    detail={
+                        "step_index": i + 1,
+                        "tool": step.tool,
+                        "acceptable": bool(review.get("acceptable")),
+                        "has_retry_step": bool(review.get("retry_step")),
+                    },
+                    session=session,
+                )
                 if review.get("acceptable"):
                     if session is not None:
                         await _log(task.id, "info", f"step {i+1} AI review accepted result", session)
@@ -166,6 +224,14 @@ async def _execute_steps(task: Task, session=None) -> None:
                     task.steps.insert(step_index + 1, inserted)
                     if session is not None:
                         await _log(task.id, "warning", f"step {i+1} AI requested retry: {inserted.description}", session)
+                    await record_task_trace(
+                        task.id,
+                        stage="orchestrator",
+                        event="retry_step_inserted",
+                        status=task.status,
+                        detail={"after_step_index": i + 1, "tool": inserted.tool},
+                        session=session,
+                    )
                     step_index += 1
                     continue
 
@@ -175,6 +241,14 @@ async def _execute_steps(task: Task, session=None) -> None:
             task.status = "failed"
             task.error = quality.message
             task.summary = quality.message
+            await record_task_trace(
+                task.id,
+                stage="orchestrator",
+                event="quality_blocked",
+                status=task.status,
+                detail={"step_index": i + 1, "tool": step.tool, "quality_status": quality.status},
+                session=session,
+            )
             return
 
         step_index += 1
@@ -229,7 +303,11 @@ async def _update_db(task: Task, session):
             for s in task.steps
         ]
     )
-    row.result = json.dumps({"summary": task.summary, "results": task.results})
+    if task.result_data:
+        payload = {"summary": task.summary, "results": task.results, **task.result_data}
+    else:
+        payload = {"summary": task.summary, "results": task.results}
+    row.result = json.dumps(payload, ensure_ascii=False)
     row.error = task.error or None
     row.completed_at = task.completed_at
     await session.commit()
@@ -254,36 +332,3 @@ def deserialize_task(task_id: str, command: str, plan_json: str | None) -> Task:
         for step in steps_data
     ]
     return task
-
-
-def _should_postflight_review(step: Step, result: dict) -> bool:
-    if step.tool in {"browser", "crawler"}:
-        return True
-    data = result.get("data") or {}
-    return isinstance(data, dict) and data.get("action") == "open_url"
-
-
-async def _build_ai_takeover_steps(task: Task) -> list[Step]:
-    continuation = await ai_agent.continue_task(
-        task.command,
-        {
-            "summary": task.summary,
-            "results": task.results,
-        },
-    )
-    if not continuation:
-        return []
-
-    steps = continuation.get("steps", [])
-    if not isinstance(steps, list):
-        return []
-
-    return [
-        Step(
-            tool=step["tool"],
-            params=step["params"],
-            description=step.get("description", "ai_takeover"),
-        )
-        for step in steps
-        if step.get("tool") and isinstance(step.get("params"), dict)
-    ]
