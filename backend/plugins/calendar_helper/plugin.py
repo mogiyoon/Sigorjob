@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import re
 
 from connections import manager as connection_manager
+from connections import oauth
 from tools.base import BaseTool
 
 
@@ -20,6 +21,24 @@ class CalendarHelperTool(BaseTool):
             return {"success": False, "data": None, "error": "text is required"}
 
         parsed = _parse_calendar_request(raw_text)
+        fallback_data = self._build_fallback_link(parsed)
+        if params.get("use_fallback"):
+            return {
+                "success": True,
+                "data": fallback_data,
+                "error": None,
+            }
+
+        if not oauth.get_stored_tokens("google_calendar"):
+            return {
+                "success": False,
+                "data": {
+                    "fallback_url": fallback_data["url"],
+                    "fallback": fallback_data,
+                },
+                "error": "google calendar connection required",
+            }
+
         connector_result = await connection_manager.execute_capability(
             "create_calendar_event",
             {
@@ -36,6 +55,16 @@ class CalendarHelperTool(BaseTool):
                 "error": None,
             }
 
+        return {
+            "success": False,
+            "data": {
+                "fallback_url": fallback_data["url"],
+                "fallback": fallback_data,
+            },
+            "error": connector_result.error or "google calendar event creation failed",
+        }
+
+    def _build_fallback_link(self, parsed: dict) -> dict:
         url = (
             "https://calendar.google.com/calendar/render?action=TEMPLATE"
             f"&text={quote_plus(parsed['title'])}"
@@ -43,20 +72,16 @@ class CalendarHelperTool(BaseTool):
             f"&dates={parsed['dates']}"
         )
         return {
-            "success": True,
-            "data": {
-                "action": "open_url",
-                "url": url,
-                "title": f"캘린더에 {parsed['title']} 추가",
-                "calendar": parsed,
-                "connector": {
-                    "connection_id": None,
-                    "driver_id": None,
-                    "capability": "create_calendar_event",
-                    "execution_mode": "fallback_link",
-                },
+            "action": "open_url",
+            "url": url,
+            "title": f"캘린더에 {parsed['title']} 추가",
+            "calendar": parsed,
+            "connector": {
+                "connection_id": None,
+                "driver_id": None,
+                "capability": "create_calendar_event",
+                "execution_mode": "fallback_link",
             },
-            "error": None,
         }
 
 

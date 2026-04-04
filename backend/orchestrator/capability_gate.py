@@ -10,7 +10,9 @@ from orchestrator.task import Step
 
 CapabilityCheck = dict[str, Any]
 
-_TOOL_CAPABILITY_MAP: dict[str, tuple[str, str]] = {}
+_TOOL_CAPABILITY_MAP: dict[str, tuple[str, str]] = {
+    "calendar_helper": ("google_calendar", "create_calendar_event"),
+}
 
 
 def check_capabilities(steps: list[Step]) -> list[CapabilityCheck]:
