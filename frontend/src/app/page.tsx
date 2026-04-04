@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ApprovalPanel from "@/components/ApprovalPanel";
 import CommandInput from "@/components/CommandInput";
@@ -11,15 +11,17 @@ import SchedulePanel from "@/components/SchedulePanel";
 import TaskCard from "@/components/TaskCard";
 import {
   ApprovalItem,
+  approveTask,
   continueTaskWithAi,
   deleteTask,
   deleteTasks,
   getBaseUrl,
   getSetupStatus,
+  getTask,
   listApprovals,
   listSchedules,
   listTasks,
-  pollUntilDone,
+  rejectTask,
   retryTask,
   ScheduleItem,
   sendCommand,
@@ -28,6 +30,13 @@ import {
 } from "@/lib/api";
 
 type DashboardTab = "execute" | "routines" | "recent";
+
+interface ApprovalModalState {
+  taskId: string;
+  command: string;
+  riskLevel: string;
+  reason: string | null;
+}
 
 function CircleIconButton({
   label,
@@ -75,6 +84,9 @@ export default function Home() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [backendStartupError, setBackendStartupError] = useState<string | null>(null);
   const [backendStartupLogPath, setBackendStartupLogPath] = useState<string | null>(null);
+  const [approvalModal, setApprovalModal] = useState<ApprovalModalState | null>(null);
+  const [approvalActionLoading, setApprovalActionLoading] = useState<"approve" | "reject" | null>(null);
+  const approvalDecisionResolverRef = useRef<((approved: boolean) => void) | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<
     | { mode: "single"; taskId: string }
     | { mode: "bulk"; taskIds: string[] }
@@ -123,6 +135,13 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [router]);
 
+  useEffect(() => {
+    return () => {
+      approvalDecisionResolverRef.current?.(false);
+      approvalDecisionResolverRef.current = null;
+    };
+  }, []);
+
   const refreshDashboard = async () => {
     try {
       const [approvalData, scheduleData, taskData] = await Promise.all([
@@ -144,6 +163,90 @@ export default function Home() {
     }
   };
 
+  const upsertTask = (updated: TaskResponse) => {
+    setTasks((prev) => {
+      const existing = prev.some((task) => task.task_id === updated.task_id);
+      if (!existing) {
+        return [updated, ...prev];
+      }
+      return prev.map((task) => (task.task_id === updated.task_id ? updated : task));
+    });
+  };
+
+  const waitForApprovalDecision = async (task: TaskResponse): Promise<boolean> => {
+    let approval = approvals.find((item) => item.task_id === task.task_id) ?? null;
+    if (!approval) {
+      try {
+        const approvalData = await listApprovals();
+        setApprovals(approvalData.approvals);
+        approval = approvalData.approvals.find((item) => item.task_id === task.task_id) ?? null;
+      } catch {
+        approval = null;
+      }
+    }
+
+    setApprovalModal({
+      taskId: task.task_id,
+      command: approval?.command || task.command || t("run"),
+      riskLevel: approval?.risk_level || "medium",
+      reason: approval?.reason ?? null,
+    });
+
+    return new Promise<boolean>((resolve) => {
+      approvalDecisionResolverRef.current = resolve;
+    });
+  };
+
+  const pollTaskUntilSettled = async (taskId: string): Promise<TaskResponse> => {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < 60000) {
+      const updated = await getTask(taskId);
+      upsertTask(updated);
+
+      if (
+        updated.status === "done" ||
+        updated.status === "failed" ||
+        updated.status === "cancelled" ||
+        updated.status === "needs_clarification"
+      ) {
+        return updated;
+      }
+
+      if (updated.status === "approval_required") {
+        const approved = await waitForApprovalDecision(updated);
+        if (!approved) {
+          try {
+            const rejected = await getTask(taskId);
+            if (
+              rejected.status === "done" ||
+              rejected.status === "failed" ||
+              rejected.status === "cancelled" ||
+              rejected.status === "needs_clarification"
+            ) {
+              upsertTask(rejected);
+              return rejected;
+            }
+          } catch {
+            // Fall through to a local failed state when the backend state is not available yet.
+          }
+
+          const failedTask: TaskResponse = {
+            ...updated,
+            status: "failed",
+            result: updated.result,
+          };
+          upsertTask(failedTask);
+          return failedTask;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    throw new Error("polling timeout");
+  };
+
   const handleSubmit = async (text: string) => {
     setLoading(true);
     setSubmitError(null);
@@ -155,14 +258,11 @@ export default function Home() {
     try {
       const initial = await sendCommand(text);
       console.warn("[submit] initial task created", initial);
-      setTasks((prev) => [initial, ...prev.filter((task) => task.task_id !== initial.task_id)]);
+      upsertTask(initial);
 
-      const final = await pollUntilDone(initial.task_id, (updated) => {
-        console.warn("[submit] task update", updated);
-        setTasks((prev) => prev.map((task) => (task.task_id === updated.task_id ? updated : task)));
-      });
+      const final = await pollTaskUntilSettled(initial.task_id);
       console.warn("[submit] final task", final);
-      setTasks((prev) => prev.map((task) => (task.task_id === final.task_id ? final : task)));
+      upsertTask(final);
       await refreshDashboard();
       return true;
     } catch (error) {
@@ -189,15 +289,11 @@ export default function Home() {
     try {
       const clarification = (task.result as { clarification?: unknown } | null)?.clarification ?? {};
       const nextTask = await sendCommand(answer, { clarification });
-      setTasks((prev) => [
-        nextTask,
-        ...prev.filter((item) => item.task_id !== task.task_id && item.task_id !== nextTask.task_id),
-      ]);
+      setTasks((prev) => prev.filter((item) => item.task_id !== task.task_id && item.task_id !== nextTask.task_id));
+      upsertTask(nextTask);
 
-      const final = await pollUntilDone(nextTask.task_id, (updated) => {
-        setTasks((prev) => prev.map((item) => (item.task_id === updated.task_id ? updated : item)));
-      });
-      setTasks((prev) => prev.map((item) => (item.task_id === final.task_id ? final : item)));
+      const final = await pollTaskUntilSettled(nextTask.task_id);
+      upsertTask(final);
       await refreshDashboard();
     } catch (error) {
       console.error(error);
@@ -223,11 +319,9 @@ export default function Home() {
     setRetryingTaskId(taskId);
     try {
       const retried = await retryTask(taskId);
-      setTasks((prev) => [retried, ...prev]);
-      const final = await pollUntilDone(retried.task_id, (updated) => {
-        setTasks((prev) => prev.map((task) => (task.task_id === updated.task_id ? updated : task)));
-      });
-      setTasks((prev) => prev.map((task) => (task.task_id === final.task_id ? final : task)));
+      upsertTask(retried);
+      const final = await pollTaskUntilSettled(retried.task_id);
+      upsertTask(final);
       await refreshDashboard();
     } catch (error) {
       console.error(error);
@@ -319,6 +413,46 @@ export default function Home() {
     }
   };
 
+  const approvalRiskTone =
+    approvalModal?.riskLevel === "high"
+      ? "border-red-200 bg-red-50 text-red-800"
+      : approvalModal?.riskLevel === "medium"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : "border-emerald-200 bg-emerald-50 text-emerald-800";
+
+  const handleApproveCurrentTask = async () => {
+    if (!approvalModal) return;
+    setApprovalActionLoading("approve");
+    try {
+      await approveTask(approvalModal.taskId);
+      setApprovalModal(null);
+      approvalDecisionResolverRef.current?.(true);
+      approvalDecisionResolverRef.current = null;
+      await refreshDashboard();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setApprovalActionLoading(null);
+    }
+  };
+
+  const handleRejectCurrentTask = async () => {
+    if (!approvalModal) return;
+    setApprovalActionLoading("reject");
+    try {
+      await rejectTask(approvalModal.taskId);
+      setSubmitError(t("task_rejected_message", "Approval was rejected. The task was cancelled."));
+      setApprovalModal(null);
+      approvalDecisionResolverRef.current?.(false);
+      approvalDecisionResolverRef.current = null;
+      await refreshDashboard();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setApprovalActionLoading(null);
+    }
+  };
+
   const mobileStatusLabel =
     cloudflaredInstalled === false
       ? t("not_ready")
@@ -352,6 +486,66 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.08),_transparent_28%),linear-gradient(to_bottom,_#f8fafc,_#f3f4f6)] px-4 py-5 md:py-7">
+      {approvalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
+          <div className="w-full max-w-lg rounded-[2rem] border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.22em] text-gray-400">
+                  {t("approval_required", "Approval required")}
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-gray-950">
+                  {t("approval_modal_title", "Review before continuing")}
+                </h2>
+              </div>
+              <span className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${approvalRiskTone}`}>
+                {approvalModal.riskLevel}
+              </span>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {t("command", "Command")}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-gray-900">{approvalModal.command}</p>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {t("approval_reason", "Approval reason")}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-gray-700">
+                  {approvalModal.reason ||
+                    t(
+                      "approval_reason_fallback",
+                      "This action requires explicit permission before it can continue."
+                    )}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={handleRejectCurrentTask}
+                disabled={approvalActionLoading !== null}
+                className="rounded-2xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
+              >
+                {approvalActionLoading === "reject" ? t("rejecting", "Rejecting...") : t("reject")}
+              </button>
+              <button
+                type="button"
+                onClick={handleApproveCurrentTask}
+                disabled={approvalActionLoading !== null}
+                className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
+              >
+                {approvalActionLoading === "approve" ? t("approving", "Approving...") : t("approve")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfirmDialog
         open={deleteDialog !== null}
         title={

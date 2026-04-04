@@ -322,7 +322,7 @@ export async function listApprovals(): Promise<{ approvals: ApprovalItem[] }> {
 export async function approveTask(taskId: string): Promise<void> {
   const res = await apiFetch(`/approval/${taskId}`, {
     method: "POST",
-    body: JSON.stringify({ action: "approve" }),
+    body: JSON.stringify({ approved: true }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
@@ -330,7 +330,7 @@ export async function approveTask(taskId: string): Promise<void> {
 export async function rejectTask(taskId: string): Promise<void> {
   const res = await apiFetch(`/approval/${taskId}`, {
     method: "POST",
-    body: JSON.stringify({ action: "reject" }),
+    body: JSON.stringify({ approved: false }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
