@@ -1,10 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timezone
 from ai.runtime import has_api_key, validate_connection
 from tunnel import manager as tunnel
+from connections import oauth
+from connections.oauth_scopes import get_scopes_for_connection
 from connections.registry import (
     delete_custom_connection,
+    get_connection,
     list_connections,
     update_external_connection,
     upsert_custom_connection,
@@ -53,12 +56,27 @@ class CustomConnectionRequest(BaseModel):
     metadata: dict | None = None
 
 
+class OAuthCallbackRequest(BaseModel):
+    code: str
+    state: str
+
+
 def _effective_tunnel_mode() -> str:
     mode = config_store.get("tunnel_mode", "none")
     token = config_store.get("cloudflare_tunnel_token")
     if mode == "none" and token:
         return "cloudflare"
     return mode
+
+
+def _get_supported_oauth_connection(connection_id: str) -> list[str]:
+    connection = get_connection(connection_id)
+    if connection is None:
+        raise HTTPException(status_code=404, detail="Unknown connection.")
+    scopes = get_scopes_for_connection(connection_id)
+    if not scopes:
+        raise HTTPException(status_code=404, detail="OAuth is not supported for this connection.")
+    return scopes
 
 
 @router.get("/setup/status")
@@ -113,6 +131,55 @@ async def update_connection(connection_id: str, req: ConnectionUpdateRequest):
     )
     if item is None:
         return {"success": False, "error": "Unknown connection."}
+    return {"success": True, "connection": item}
+
+
+@router.post("/setup/connections/{connection_id}/authorize")
+async def authorize_connection(connection_id: str):
+    scopes = _get_supported_oauth_connection(connection_id)
+    result = oauth.build_google_authorize_url(connection_id, scopes)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"] or "Failed to create authorization URL.")
+    data = result["data"] or {}
+    return {"success": True, "auth_url": data.get("auth_url")}
+
+
+@router.post("/setup/connections/{connection_id}/callback")
+async def oauth_callback(connection_id: str, req: OAuthCallbackRequest):
+    _get_supported_oauth_connection(connection_id)
+    if not oauth.consume_authorization_state(connection_id, req.state.strip()):
+        raise HTTPException(status_code=400, detail="Invalid or expired oauth state.")
+
+    result = await oauth.exchange_code_for_tokens(connection_id, req.code)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"] or "Failed to exchange oauth code.")
+
+    item = update_external_connection(
+        connection_id,
+        configured=True,
+        verified=True,
+        available=True,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown connection.")
+    return {"success": True, "connection": item}
+
+
+@router.post("/setup/connections/{connection_id}/disconnect")
+async def disconnect_connection(connection_id: str):
+    _get_supported_oauth_connection(connection_id)
+    success, error = oauth.delete_stored_tokens(connection_id)
+    if not success:
+        raise HTTPException(status_code=400, detail=error or "Failed to remove oauth token.")
+
+    item = update_external_connection(
+        connection_id,
+        configured=False,
+        verified=False,
+        available=False,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown connection.")
     return {"success": True, "connection": item}
 
 
