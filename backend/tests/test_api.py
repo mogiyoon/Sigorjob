@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config.store import config_store
 from db import session as db_session
 from gateway.app import app
+from intent import router as intent_router
 from orchestrator import engine as orchestrator_engine
 from scheduler import service as scheduler_service
 from tools.registry import load_default_tools
@@ -38,6 +39,8 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         orchestrator_engine.AsyncSessionLocal = self.session_maker
         scheduler_service.AsyncSessionLocal = self.session_maker
         config_store.set("custom_commands", [])
+        self._orig_has_api_key = intent_router.has_api_key
+        intent_router.has_api_key = lambda: False
 
         await db_session.init_db()
         load_default_tools()
@@ -51,6 +54,7 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         config_store.set = self._orig_config_set
         config_store.delete = self._orig_config_delete
         config_store.all = self._orig_config_all
+        intent_router.has_api_key = self._orig_has_api_key
         await self.client.aclose()
         await scheduler_service.stop()
         await self.engine.dispose()

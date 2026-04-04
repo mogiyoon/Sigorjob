@@ -102,22 +102,6 @@ async def route(command: str, context: dict | None = None) -> Task:
         }
         return await _route_legacy(task, normalized_command, clarification)
 
-    direct_step = _match_rules(normalized_command)
-    if direct_step and direct_step.tool in _AI_BYPASS_TOOLS:
-        return await _complete_direct_route(task, normalized_command, direct_step)
-
-    direct_intent = detect_intent(normalized_command)
-    if direct_intent and direct_intent.category in _AI_BYPASS_INTENT_CATEGORIES:
-        return await _complete_direct_route(
-            task,
-            normalized_command,
-            Step(
-                tool=_intent_tool(direct_intent.category),
-                params=direct_intent.params,
-                description=direct_intent.description,
-            ),
-        )
-
     if not has_api_key():
         return await _route_legacy(task, normalized_command, clarification)
 

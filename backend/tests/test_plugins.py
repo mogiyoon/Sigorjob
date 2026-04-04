@@ -36,7 +36,9 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
         self._orig_config_delete = config_store.delete
         self._orig_config_all = config_store.all
         self._orig_ai_plan = intent_router.ai_agent.plan
+        self._orig_has_api_key = intent_router.has_api_key
         self._orig_router_record_task_trace = intent_router.record_task_trace
+        intent_router.has_api_key = lambda: False
         config_store.get = lambda key, default=None: self.config_data.get(key, default)
         config_store.set = lambda key, value: self.config_data.__setitem__(key, value)
         config_store.delete = lambda key: self.config_data.pop(key, None)
@@ -54,6 +56,7 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
         config_store.delete = self._orig_config_delete
         config_store.all = self._orig_config_all
         intent_router.ai_agent.plan = self._orig_ai_plan
+        intent_router.has_api_key = self._orig_has_api_key
         intent_router.record_task_trace = self._orig_router_record_task_trace
 
     async def test_reservation_plugin_route(self):
@@ -74,23 +77,27 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.steps[0].tool, "calendar_helper")
         self.assertFalse(task.used_ai)
 
-    async def test_calendar_rule_route_skips_ai_clarification(self):
-        original_has_api_key = intent_router.has_api_key
-        original_request_clarification = intent_router.ai_agent.request_clarification
+    async def test_calendar_ai_first_route_uses_ai_plan(self):
+        """AI-first mode: AI plans calendar requests when API key is present."""
         intent_router.has_api_key = lambda: True
 
-        async def fail_if_called(command: str, history: list[dict]):
-            raise AssertionError("AI clarification should not run for a direct calendar rule match")
+        async def fake_plan(command):
+            return {
+                "intent": command,
+                "steps": [
+                    {"tool": "calendar_helper", "params": {"text": command}, "description": "add calendar event"}
+                ],
+            }
 
-        intent_router.ai_agent.request_clarification = fail_if_called
+        original_plan = intent_router.ai_agent.plan
+        intent_router.ai_agent.plan = fake_plan
         try:
             task = await intent_router.route("4월 11일 16시에 벚꽃 일정 추가해줘")
         finally:
-            intent_router.has_api_key = original_has_api_key
-            intent_router.ai_agent.request_clarification = original_request_clarification
+            intent_router.ai_agent.plan = original_plan
 
         self.assertEqual(task.steps[0].tool, "calendar_helper")
-        self.assertFalse(task.used_ai)
+        self.assertTrue(task.used_ai)
 
     async def test_calendar_helper_preserves_explicit_month_day_in_google_link(self):
         tool = get("calendar_helper")
