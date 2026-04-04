@@ -1,0 +1,34 @@
+{
+  "id": "feat-oauth-flow",
+  "title": "Add OAuth authorization and callback endpoints for Google services",
+  "goal": "사용자가 UI에서 'Google 연결' 버튼을 클릭하면 OAuth 인증 후 캘린더/Gmail이 실제로 작동하도록 한다. authorize URL 생성 엔드포인트, callback 코드 교환 엔드포인트, disconnect 엔드포인트, 연결별 OAuth 스코프 매핑을 추가한다.",
+  "implementation_locations": {
+    "new_files": ["backend/connections/oauth_scopes.py", "backend/tests/test_oauth_flow.py"],
+    "modified_files": ["backend/gateway/routes/setup.py", "backend/connections/oauth.py"]
+  },
+  "test_requirements": [
+    {"case": "POST /setup/connections/google_calendar/authorize returns auth_url", "expected": "response contains auth_url with accounts.google.com and correct scope and state param"},
+    {"case": "POST /setup/connections/google_calendar/callback with valid code+state exchanges tokens", "expected": "connection marked configured=True verified=True, tokens stored in secret_store"},
+    {"case": "POST /setup/connections/google_calendar/callback with invalid state rejects", "expected": "returns 400 error, connection unchanged"},
+    {"case": "POST /setup/connections/google_calendar/disconnect clears tokens", "expected": "connection marked configured=False verified=False, tokens removed from secret_store"},
+    {"case": "Gmail authorize returns auth_url with gmail scopes", "expected": "scope includes gmail.compose and gmail.readonly"},
+    {"case": "Calendar authorize returns auth_url with calendar scope", "expected": "scope includes calendar"},
+    {"case": "State token expires after 10 minutes", "expected": "callback with expired state returns 400"},
+    {"case": "Duplicate state token prevented", "expected": "each authorize call generates unique state"}
+  ],
+  "constraints": [
+    "Do not modify existing oauth.py functions (exchange_code_for_tokens, refresh_access_token, get_access_token)",
+    "Add new functions/endpoints only",
+    "State tokens stored in-memory dict with TTL (no external dependency)",
+    "Scopes defined per connection_id in oauth_scopes.py, not hardcoded in routes",
+    "Do not modify frontend files",
+    "Do not modify driver files",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/oauth-flow",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_oauth_flow -v"
+}

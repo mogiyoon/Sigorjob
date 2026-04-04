@@ -1,0 +1,40 @@
+{
+  "id": "feat-missing-tests-high",
+  "title": "Add missing high-priority tests for custom_commands, risk_evaluator, file tool, shell tool",
+  "goal": "testing-strategy.md에서 우선순위 '높음'으로 표시된 누락 테스트를 추가한다: custom_commands.py의 match_custom_command, tools/file/tool.py의 read/write/copy/delete, tools/shell/tool.py의 허용/차단 명령 실행.",
+  "implementation_locations": {
+    "new_files": [
+      "backend/tests/test_custom_commands.py",
+      "backend/tests/test_file_tool.py",
+      "backend/tests/test_shell_tool.py"
+    ],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {"case": "custom_commands: contains match type matches substring", "expected": "returns matching custom command dict"},
+    {"case": "custom_commands: exact match type only matches full string", "expected": "returns match for exact, None for partial"},
+    {"case": "custom_commands: no match returns None", "expected": "returns None for unrelated command"},
+    {"case": "custom_commands: disabled command is not matched", "expected": "returns None even if trigger matches"},
+    {"case": "file tool: read existing file returns content", "expected": "success=True, data contains text"},
+    {"case": "file tool: read nonexistent file returns error", "expected": "success=False with error message"},
+    {"case": "file tool: write creates file in allowed dir", "expected": "success=True, file exists with correct content"},
+    {"case": "file tool: write to blocked path returns error", "expected": "success=False, file not created"},
+    {"case": "file tool: delete removes file", "expected": "success=True, file no longer exists"},
+    {"case": "shell tool: allowed command executes", "expected": "success=True, data contains stdout"},
+    {"case": "shell tool: blocked command returns error", "expected": "success=False with blocked message"},
+    {"case": "shell tool: dangerous pattern blocked", "expected": "success=False for rm -rf pattern"}
+  ],
+  "constraints": [
+    "Do not modify any source code — test-only changes",
+    "File tool tests must use /tmp for read/write/delete (cleanup after each test)",
+    "Shell tool tests must not execute dangerous commands (test policy check, not actual execution where risky)",
+    "Custom commands tests must stub config_store",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/missing-tests-high",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_custom_commands tests.test_file_tool tests.test_shell_tool -v"
+}

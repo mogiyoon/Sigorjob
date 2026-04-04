@@ -1,0 +1,40 @@
+{
+  "id": "feat-auto-approval",
+  "title": "Add auto-approval policy for repeated safe patterns",
+  "goal": "사용자가 한 번 승인한 tool+params 패턴을 기억하여 동일 패턴 재요청 시 자동 승인한다. 자동 승인된 패턴 목록을 관리하는 API를 추가한다. 위험 레벨 high는 항상 수동 승인을 유지한다.",
+  "implementation_locations": {
+    "new_files": [
+      "backend/policy/auto_approval.py",
+      "backend/tests/test_auto_approval.py"
+    ],
+    "modified_files": [
+      "backend/orchestrator/engine.py",
+      "backend/gateway/routes/approval.py"
+    ]
+  },
+  "test_requirements": [
+    {"case": "First medium-risk request requires manual approval", "expected": "task status becomes approval_required"},
+    {"case": "After approval, record_approved_pattern stores the pattern", "expected": "pattern stored in config_store with tool name and param hash"},
+    {"case": "Same tool+params pattern auto-approved on second request", "expected": "task executes without approval_required status"},
+    {"case": "Different params for same tool still requires approval", "expected": "task status becomes approval_required"},
+    {"case": "High risk is never auto-approved", "expected": "task always becomes approval_required regardless of history"},
+    {"case": "GET /approvals/auto returns list of auto-approved patterns", "expected": "returns list with tool, pattern_hash, approved_at, count"},
+    {"case": "DELETE /approvals/auto/{pattern_id} removes auto-approval", "expected": "pattern removed, next request requires manual approval again"},
+    {"case": "Low risk never requires approval (unchanged behavior)", "expected": "task executes directly"}
+  ],
+  "constraints": [
+    "Do not change low-risk behavior (always auto-execute)",
+    "Do not auto-approve high risk (always manual)",
+    "Only medium risk gets auto-approval after first manual approval",
+    "Pattern matching uses tool name + sorted JSON hash of params (not exact match)",
+    "Auto-approval patterns stored in config_store under 'auto_approval_patterns'",
+    "Do not modify intent router or risk evaluator",
+    "Existing approval tests must pass"
+  ],
+  "branch_name": "feat/auto-approval",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_auto_approval -v"
+}

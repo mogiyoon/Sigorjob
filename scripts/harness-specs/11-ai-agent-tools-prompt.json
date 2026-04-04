@@ -1,0 +1,30 @@
+{
+  "id": "feat-ai-agent-tools-prompt",
+  "title": "Enhance AI agent system prompt with new tool capabilities",
+  "goal": "AI 에이전트의 시스템 프롬프트를 강화하여 browser_auto(Playwright), mcp, 동적 파라미터(${template}), 조건부 스텝(condition)을 AI가 계획에 활용할 수 있게 한다. AI가 멀티스텝 계획 시 동적 파라미터와 조건부 실행을 적극 사용하도록 유도한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_ai_agent_prompt.py"],
+    "modified_files": ["backend/ai/agent.py"]
+  },
+  "test_requirements": [
+    {"case": "System prompt includes browser_auto tool description", "expected": "prompt mentions navigate, click, type, screenshot, extract_text actions"},
+    {"case": "System prompt includes mcp tool description when servers configured", "expected": "prompt mentions mcp tool with server names from config"},
+    {"case": "System prompt includes dynamic parameter syntax", "expected": "prompt explains ${steps[N].result.data.field} template usage"},
+    {"case": "System prompt includes conditional step syntax", "expected": "prompt explains condition field on steps"},
+    {"case": "System prompt without MCP servers omits MCP section", "expected": "no mcp mention when no servers in config"},
+    {"case": "plan() can return steps with param_template=true", "expected": "returned step dict can include param_template field"}
+  ],
+  "constraints": [
+    "Do not change plan(), continue_task(), or other function signatures",
+    "Only modify the system prompt building logic",
+    "Do not add AI calls in tests — test the prompt content, not AI output",
+    "MCP section only appears when servers are configured",
+    "Existing AI agent tests must pass"
+  ],
+  "branch_name": "feat/ai-agent-tools-prompt",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_ai_agent_prompt -v"
+}

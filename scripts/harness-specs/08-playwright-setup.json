@@ -1,0 +1,29 @@
+{
+  "id": "feat-playwright-setup",
+  "title": "Add Playwright dependency check and auto-install support",
+  "goal": "서버 시작 시 Playwright 설치 상태를 확인하고, 미설치 시 setup 상태에 표시하며, 원클릭 설치 엔드포인트를 제공한다. browser_auto 도구가 Playwright 미설치 시 설치 안내를 포함한 에러를 반환하도록 개선한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_playwright_setup.py"],
+    "modified_files": ["backend/gateway/routes/setup.py", "backend/tools/browser_auto/tool.py", "backend/main.py"]
+  },
+  "test_requirements": [
+    {"case": "check_playwright_status returns installed=True when playwright available", "expected": "status dict has installed: True, browsers_installed: True"},
+    {"case": "check_playwright_status returns installed=False when playwright missing", "expected": "status dict has installed: False with install_command hint"},
+    {"case": "GET /setup/status includes playwright status", "expected": "response has playwright field with installed bool"},
+    {"case": "POST /setup/playwright/install runs pip install and playwright install", "expected": "returns {success: true} or {success: false, error: ...}"},
+    {"case": "browser_auto tool returns install instructions when playwright missing", "expected": "error message includes pip install playwright command"}
+  ],
+  "constraints": [
+    "Do not auto-install on server startup — only check status",
+    "Install endpoint must be approval-gated (medium risk)",
+    "Do not modify existing browser_auto tool logic for when Playwright IS installed",
+    "Use subprocess for pip install, not programmatic pip",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/playwright-setup",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_playwright_setup -v"
+}
