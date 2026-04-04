@@ -1,19 +1,18 @@
 import re
 
-from ai import runtime
-from logger.logger import get_logger
+from tools.ai_process.tool import AIProcessTool, MAX_INPUT_CHARS
 from tools.base import BaseTool
 
-logger = get_logger(__name__)
-
 DEFAULT_MAX_LENGTH = 200
-MAX_INPUT_CHARS = 10000
 FALLBACK_SENTENCE_COUNT = 3
 
 
 class SummarizeTool(BaseTool):
     name = "summarize"
     description = "텍스트를 AI로 요약하고, 키가 없으면 앞부분을 추출 요약합니다."
+
+    def __init__(self) -> None:
+        self.ai_process_tool = AIProcessTool()
 
     async def run(self, params: dict) -> dict:
         text = str(params.get("text") or "").strip()
@@ -22,57 +21,41 @@ class SummarizeTool(BaseTool):
 
         language = str(params.get("language") or "auto-detect")
         max_length = self._coerce_max_length(params.get("max_length"))
+        instruction = self._build_instruction(language=language, max_length=max_length)
 
-        client = runtime.get_client()
-        if not runtime.has_api_key() or client is None:
-            return self._fallback_result(text, language)
-
-        truncated_text = text[:MAX_INPUT_CHARS]
-        prompt = self._build_prompt(
-            text=truncated_text,
-            language=language,
-            max_length=max_length,
-        )
-
-        try:
-            message = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=512,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            summary = message.content[0].text.strip()
-            return {
-                "success": True,
-                "data": {"summary": summary, "language": language},
-                "error": None,
+        result = await self.ai_process_tool.run(
+            {
+                "text": text,
+                "instruction": instruction,
+                "language": None if language == "auto-detect" else language,
             }
-        except Exception as exc:
-            logger.error(f"summarize tool failed, using fallback: {exc}")
-            return self._fallback_result(text, language)
+        )
+        if not result["success"]:
+            return result
 
-    def _build_prompt(self, *, text: str, language: str, max_length: int) -> str:
+        processed_result = str(result["data"]["result"])
+        if processed_result.startswith("AI processing unavailable"):
+            summary = self._extractive_summary(text)
+        else:
+            summary = processed_result
+
+        return {
+            "success": True,
+            "data": {"summary": summary, "language": language},
+            "error": None,
+        }
+
+    def _build_instruction(self, *, language: str, max_length: int) -> str:
         response_language = (
             "the same language as the input"
             if language == "auto-detect"
             else language
         )
         return (
-            "Summarize the following text.\n"
+            "Summarize this text concisely.\n"
             f"Respond in {response_language}.\n"
-            f"Keep the summary within about {max_length} characters.\n\n"
-            "Text to summarize:\n"
-            f"{text}"
+            f"Keep the summary within about {max_length} characters."
         )
-
-    def _fallback_result(self, text: str, language: str) -> dict:
-        return {
-            "success": True,
-            "data": {
-                "summary": self._extractive_summary(text),
-                "language": language,
-            },
-            "error": None,
-        }
 
     def _extractive_summary(self, text: str) -> str:
         normalized = " ".join(text.split()).strip()

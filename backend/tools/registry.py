@@ -16,6 +16,7 @@ def list_tools() -> list[dict]:
 
 
 def load_default_tools():
+    from tools.ai_process.tool import AIProcessTool
     from tools.file.tool import FileTool
     from tools.shell.tool import ShellTool
     from tools.crawler.tool import CrawlerTool
@@ -26,6 +27,7 @@ def load_default_tools():
     from tools.browser_auto.tool import BrowserAutoTool
     from tools.summarize.tool import SummarizeTool
 
+    register(AIProcessTool())
     register(FileTool())
     register(ShellTool())
     register(CrawlerTool())
