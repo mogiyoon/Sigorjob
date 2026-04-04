@@ -1,0 +1,33 @@
+{
+  "id": "feat-oauth-pkce",
+  "title": "Convert OAuth flow from client_secret to PKCE for desktop/packaged app security",
+  "goal": "OAuth 플로우를 PKCE(Proof Key for Code Exchange) 방식으로 전환한다. client_secret 의존을 제거하고, code_verifier/code_challenge 쌍으로 인증한다. 패키지 배포 시 시크릿 유출 위험이 없어진다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_oauth_pkce.py"],
+    "modified_files": ["backend/connections/oauth.py", "backend/connections/oauth_scopes.py", "backend/gateway/routes/setup.py"]
+  },
+  "test_requirements": [
+    {"case": "generate_pkce_pair returns code_verifier and code_challenge", "expected": "verifier is 43-128 chars, challenge is base64url-encoded SHA256 of verifier"},
+    {"case": "authorize endpoint returns auth_url with code_challenge and code_challenge_method=S256", "expected": "auth_url contains code_challenge param and code_challenge_method=S256"},
+    {"case": "authorize endpoint does NOT include client_secret in auth_url", "expected": "no client_secret param in URL"},
+    {"case": "callback sends code_verifier instead of client_secret to token endpoint", "expected": "token exchange POST body has code_verifier, no client_secret"},
+    {"case": "token refresh still works without client_secret", "expected": "refresh request uses client_id only, no client_secret required"},
+    {"case": "code_verifier stored temporarily with state token and cleaned up after use", "expected": "after callback, verifier is removed from memory"},
+    {"case": "Old client_secret config is ignored if present", "expected": "system works even if google_oauth_client_secret is set in config"}
+  ],
+  "constraints": [
+    "PKCE spec: code_verifier = random 43-128 char string (A-Z a-z 0-9 -._~)",
+    "PKCE spec: code_challenge = base64url(sha256(code_verifier)) with no padding",
+    "Use only stdlib (hashlib, base64, secrets) — no external PKCE library",
+    "Do not remove client_secret reading from config — just make it optional/ignored for PKCE flow",
+    "Do not break existing tests — existing oauth_flow tests must still pass",
+    "The authorize endpoint must store code_verifier alongside state token in the same TTL cache",
+    "Do not modify frontend files or driver files"
+  ],
+  "branch_name": "feat/oauth-pkce",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_oauth_pkce -v"
+}
