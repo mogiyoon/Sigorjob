@@ -24,6 +24,7 @@ def load_default_tools():
     from tools.browser.tool import BrowserTool
     from tools.mcp.tool import MCPTool
     from tools.browser_auto.tool import BrowserAutoTool
+    from tools.summarize.tool import SummarizeTool
 
     register(FileTool())
     register(ShellTool())
@@ -33,3 +34,4 @@ def load_default_tools():
     register(BrowserTool())
     register(MCPTool())
     register(BrowserAutoTool())
+    register(SummarizeTool())
