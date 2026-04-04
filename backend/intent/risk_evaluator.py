@@ -1,13 +1,40 @@
+import shlex
+
 from policy import engine as policy
 
 
 def evaluate(tool: str, params: dict) -> str:
     """실행 위험도 반환: low | medium | high"""
     if tool == "shell":
-        command = params.get("command", "").strip().split()
-        safe_commands = {"ls", "pwd", "echo"}
-        if command and command[0] in safe_commands:
+        try:
+            command = shlex.split(params.get("command", ""))
+        except ValueError:
+            return policy.get_risk_level("shell_execution")
+
+        if not command:
+            return policy.get_risk_level("shell_execution")
+
+        low_risk_commands = {
+            "ls",
+            "pwd",
+            "echo",
+            "cat",
+            "grep",
+            "find",
+            "head",
+            "tail",
+            "wc",
+            "sort",
+            "uniq",
+            "diff",
+            "git",
+        }
+        if command[0] in low_risk_commands:
             return "low"
+        if command[0] in {"curl", "wget"}:
+            return "medium"
+        if command[0] == "pip" and len(command) > 1 and command[1] == "install":
+            return "medium"
         return policy.get_risk_level("shell_execution")
     if tool == "file":
         op = params.get("operation", "read")

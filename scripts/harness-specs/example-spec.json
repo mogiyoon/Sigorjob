@@ -1,0 +1,28 @@
+{
+  "id": "feat-policy-engine-tests",
+  "title": "Add tests for policy/engine.py",
+  "goal": "policy engine에 대한 테스트 작성. blocked 명령 차단, allowed 명령 통과, shell 패턴 차단, 파일 접근 제한을 검증한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_policy_engine.py"],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {"case": "Blocked shell command is rejected", "expected": "check_command returns blocked=True with reason"},
+    {"case": "Allowed shell command passes", "expected": "check_command returns blocked=False"},
+    {"case": "Dangerous shell pattern is blocked", "expected": "rm -rf, sudo etc. are blocked"},
+    {"case": "Allowed directory access passes", "expected": "check_path returns True for /tmp"},
+    {"case": "Disallowed directory access blocked", "expected": "check_path returns False for /etc/passwd"}
+  ],
+  "constraints": [
+    "backend/policy/engine.py 수정 금지",
+    "AI 호출 금지",
+    "기존 테스트 깨뜨리기 금지",
+    "print() 사용 금지 — logger 사용"
+  ],
+  "branch_name": "feat/policy-engine-tests",
+  "base_branch": "main",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover tests/ -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests/test_policy_engine.py -v"
+}

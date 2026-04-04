@@ -1,4 +1,5 @@
 import re
+import shlex
 import yaml
 from pathlib import Path
 from logger.logger import get_logger
@@ -47,7 +48,18 @@ def check_shell(command: str) -> tuple[bool, str]:
     if not _policies:
         load_policies()
 
-    cmd_base = command.strip().split()[0]
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        return False, f"invalid command: {exc}"
+
+    if not argv:
+        return False, "command is required"
+
+    cmd_base = argv[0]
+    if cmd_base not in settings.allowed_shell_commands:
+        return False, f"command not in allowlist: {cmd_base}"
+
     blocked = _policies.get("shell", {}).get("blocked_commands", [])
     if cmd_base in blocked:
         return False, f"blocked command: {cmd_base}"

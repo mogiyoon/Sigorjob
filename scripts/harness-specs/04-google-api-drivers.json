@@ -1,0 +1,41 @@
+{
+  "id": "feat-google-api-drivers",
+  "title": "Add real Google Calendar and Gmail API drivers with OAuth",
+  "goal": "Google Calendar과 Gmail에 실제 API 호출을 수행하는 드라이버를 추가한다. OAuth 2.0 토큰 교환/갱신 로직을 구현하고 secret_store에 안전하게 저장한다.",
+  "implementation_locations": {
+    "new_files": [
+      "backend/connections/oauth.py",
+      "backend/connections/drivers/gmail.py",
+      "backend/tests/test_google_oauth.py",
+      "backend/tests/test_gmail_driver.py"
+    ],
+    "modified_files": [
+      "backend/connections/drivers/google_calendar.py"
+    ]
+  },
+  "test_requirements": [
+    {"case": "OAuth token exchange with mock server", "expected": "returns access_token and refresh_token"},
+    {"case": "OAuth token refresh with mock", "expected": "returns new access_token"},
+    {"case": "OAuth token stored securely", "expected": "token saved via secret_store, not config_store"},
+    {"case": "Calendar create_event with mocked API", "expected": "returns event_id and event_link"},
+    {"case": "Calendar create_event falls back to link when no token", "expected": "returns google calendar template link"},
+    {"case": "Gmail send_email with mocked API", "expected": "returns message_id"},
+    {"case": "Gmail read_email with mocked API", "expected": "returns list of message summaries"},
+    {"case": "Gmail driver handles missing token", "expected": "returns {success: false, error: 'not authenticated'}"}
+  ],
+  "constraints": [
+    "Use google-auth and google-api-python-client if installed, otherwise return helpful error",
+    "OAuth tokens must be stored in secret_store, never in config_store or plain files",
+    "Google Calendar driver must preserve existing link-generation as fallback",
+    "Do not hardcode client_id or client_secret - read from config",
+    "All API calls must be async-compatible (use run_in_executor for sync google libs)",
+    "Do not modify plugins - plugins call connection_manager which calls drivers",
+    "Existing calendar_helper tests must still pass"
+  ],
+  "branch_name": "feat/google-api-drivers",
+  "base_branch": "main",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_google_oauth tests.test_gmail_driver -v"
+}

@@ -1,0 +1,30 @@
+{
+  "id": "feat-orchestrator-dynamic",
+  "title": "Add dynamic parameter passing and conditional step execution to orchestrator",
+  "goal": "오케스트레이터에 스텝 간 동적 파라미터 전달(${steps[0].result.data.url} 패턴)과 조건부 스텝 실행(condition 필드)을 추가한다. AI review_budget을 1에서 3으로 증가시킨다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_orchestrator_dynamic.py"],
+    "modified_files": ["backend/orchestrator/task.py", "backend/orchestrator/engine.py"]
+  },
+  "test_requirements": [
+    {"case": "Step with false condition is skipped", "expected": "step.result is None, status is done"},
+    {"case": "Step with true condition executes normally", "expected": "step.result has success=True"},
+    {"case": "Template ${steps[0].result.data.url} resolves to actual value", "expected": "params.url equals the value from step 0 result"},
+    {"case": "Nested template ${steps[0].result.data.items[0]} resolves", "expected": "params value equals first item"},
+    {"case": "Invalid template reference falls back gracefully", "expected": "unresolved template stays as empty string, no crash"},
+    {"case": "review_budget allows 3 AI reviews per task", "expected": "third AI review still executes"}
+  ],
+  "constraints": [
+    "Do not change the existing Step fields (tool, params, description, risk_level, result)",
+    "Add new fields as optional with defaults (condition=None, param_template=False)",
+    "Do not break existing serialization in engine.py (_update_db, deserialize_task)",
+    "Do not modify intent router or gateway",
+    "Existing orchestrator tests must continue to pass"
+  ],
+  "branch_name": "feat/orchestrator-dynamic",
+  "base_branch": "main",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_orchestrator_dynamic -v"
+}

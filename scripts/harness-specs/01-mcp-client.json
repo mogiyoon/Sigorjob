@@ -1,0 +1,39 @@
+{
+  "id": "feat-mcp-client",
+  "title": "Add MCP client driver and tool for external MCP server integration",
+  "goal": "MCP 프로토콜 클라이언트를 추가하여 외부 MCP 서버(Google Calendar, Gmail 등)에 연결하고 tool을 호출할 수 있게 한다. tool registry에 mcp tool을 등록하여 오케스트레이터가 MCP tool을 실행할 수 있게 한다.",
+  "implementation_locations": {
+    "new_files": [
+      "backend/tools/mcp/__init__.py",
+      "backend/tools/mcp/tool.py",
+      "backend/connections/drivers/mcp_client.py",
+      "backend/tests/test_mcp_client.py"
+    ],
+    "modified_files": [
+      "backend/tools/registry.py",
+      "backend/connections/registry.py"
+    ]
+  },
+  "test_requirements": [
+    {"case": "MCP tool run with valid server and tool name", "expected": "returns {success: true, data: {result: ...}}"},
+    {"case": "MCP tool run with unknown server", "expected": "returns {success: false, error: 'server not found'}"},
+    {"case": "MCP tool run with unknown tool name", "expected": "returns {success: false, error: 'tool not found'}"},
+    {"case": "MCP tool is registered in tool registry", "expected": "registry.get('mcp') returns the tool"},
+    {"case": "MCP connection status in registry", "expected": "connection status is configurable, not planned"},
+    {"case": "MCP client list_tools returns tool descriptions", "expected": "returns list of {name, description, inputSchema}"}
+  ],
+  "constraints": [
+    "Use the mcp Python package (pip install mcp) for protocol handling if available, otherwise implement minimal JSON-RPC over stdio/SSE",
+    "MCP tool must follow BaseTool interface: run(params) -> {success, data, error}",
+    "Do not modify existing tools or plugins",
+    "Do not import from gateway/ inside tools/",
+    "MCP server configs stored via config_store, not hardcoded",
+    "The tool must work even if no MCP servers are configured (return helpful error)"
+  ],
+  "branch_name": "feat/mcp-client",
+  "base_branch": "main",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_mcp_client -v"
+}

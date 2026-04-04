@@ -22,6 +22,8 @@ def load_default_tools():
     from tools.time.tool import TimeTool
     from tools.system_info.tool import SystemInfoTool
     from tools.browser.tool import BrowserTool
+    from tools.mcp.tool import MCPTool
+    from tools.browser_auto.tool import BrowserAutoTool
 
     register(FileTool())
     register(ShellTool())
@@ -29,3 +31,5 @@ def load_default_tools():
     register(TimeTool())
     register(SystemInfoTool())
     register(BrowserTool())
+    register(MCPTool())
+    register(BrowserAutoTool())

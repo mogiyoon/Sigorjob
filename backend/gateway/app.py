@@ -1,11 +1,12 @@
 import asyncio
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from contextlib import asynccontextmanager
+from fastapi.staticfiles import StaticFiles
 
 from db.session import init_db
 from tools.registry import load_default_tools
@@ -45,6 +46,27 @@ limiter = (
 )
 
 
+async def _start_scheduler_background() -> None:
+    logger.info("startup phase begin: scheduler")
+    try:
+        await scheduler_service.start()
+        logger.info("startup phase complete: scheduler")
+    except Exception as exc:
+        logger.error(f"startup phase failed: scheduler ({exc})")
+
+
+async def _start_tunnel_background() -> None:
+    logger.info("startup phase begin: tunnel")
+    try:
+        url = await tunnel.start()
+        if url:
+            logger.info(f"startup phase complete: tunnel ({url})")
+        else:
+            logger.warning(f"startup phase complete: tunnel inactive ({tunnel.get_last_error() or 'no url'})")
+    except Exception as exc:
+        logger.error(f"startup phase failed: tunnel ({exc})")
+
+
 def _frontend_dist() -> Path | None:
     """Next.js 빌드 결과 경로. 번들 내부 → 상대경로 순으로 탐색."""
     if getattr(sys, "frozen", False):
@@ -61,17 +83,46 @@ def _frontend_dist() -> Path | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("startup phase begin: init_db")
     await init_db()
+    logger.info("startup phase complete: init_db")
+
+    logger.info("startup phase begin: load_default_tools")
     load_default_tools()
+    logger.info("startup phase complete: load_default_tools")
+
+    logger.info("startup phase begin: load_plugins")
     load_plugins()
-    await scheduler_service.start()
+    logger.info("startup phase complete: load_plugins")
+
+    scheduler_task = asyncio.create_task(_start_scheduler_background())
+    app.state.scheduler_start_task = scheduler_task
+
     tunnel_mode = config_store.get("tunnel_mode", "none")
     if tunnel_mode == "none" and config_store.get("cloudflare_tunnel_token"):
         tunnel_mode = "cloudflare"
         config_store.set("tunnel_mode", tunnel_mode)
+
+    tunnel_task = None
     if tunnel_mode in {"quick", "cloudflare"}:
-        asyncio.create_task(tunnel.start())
+        tunnel_task = asyncio.create_task(_start_tunnel_background())
+    app.state.tunnel_start_task = tunnel_task
     yield
+
+    if scheduler_task and not scheduler_task.done():
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+
+    if tunnel_task and not tunnel_task.done():
+        tunnel_task.cancel()
+        try:
+            await tunnel_task
+        except asyncio.CancelledError:
+            pass
+
     await scheduler_service.stop()
     await tunnel.stop()
 

@@ -15,8 +15,8 @@ This document collects practical cautions for using and extending Sigorjob.
 - Seeing `AI connected` in the UI should mean the runtime can use the key, not just that a key was previously stored.
 - If AI fallback is unavailable, some advanced requests may still fail even when the UI suggests AI is configured.
 - AI should be treated as a recovery layer, not the default path for every request.
-- The current design also uses lightweight AI checks around the first and last step, so AI may correct a weak non-AI route without owning the whole task.
-- A weak final result can now hand off into AI continuation instead of always stopping at the first partial answer.
+- When a request already matches a deterministic non-AI helper such as `calendar_helper`, that route should stay non-AI through execution and final summary.
+- AI clarification, review, and continuation should only start after the non-AI route actually fails to match or cannot produce a usable plan.
 
 ## Remote and Mobile Access
 
@@ -33,6 +33,7 @@ This document collects practical cautions for using and extending Sigorjob.
 - Some recurring workflows may create a schedule or schedule draft instead of directly delivering a push notification.
 - If a result says it was prepared for the app, check the task list or schedule list rather than expecting a system push.
 - If a result opens a page such as Google Calendar or mail compose, that is still a handoff step, not full completion inside Sigorjob.
+- Calendar-style helper flows should still produce the final Google Calendar link in packaged desktop builds without requiring MCP or an AI tool path.
 
 ## Plugins and Extensions
 
