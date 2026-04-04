@@ -115,6 +115,45 @@ def get_connection(connection_id: str) -> Connection | None:
     return None
 
 
+def list_mcp_servers() -> list[dict[str, Any]]:
+    stored = config_store.get("mcp_servers", {})
+    items: list[dict[str, Any]] = []
+
+    if isinstance(stored, dict):
+        for server_name, config in stored.items():
+            if not isinstance(config, dict):
+                continue
+            item = dict(config)
+            item["name"] = str(item.get("name") or server_name).strip()
+            if item["name"]:
+                items.append(item)
+        return items
+
+    if isinstance(stored, list):
+        for config in stored:
+            if not isinstance(config, dict):
+                continue
+            name = str(config.get("name") or config.get("id") or "").strip()
+            if not name:
+                continue
+            item = dict(config)
+            item["name"] = name
+            items.append(item)
+
+    return items
+
+
+def get_mcp_server(server_name: str) -> dict[str, Any] | None:
+    target = server_name.strip()
+    if not target:
+        return None
+
+    for item in list_mcp_servers():
+        if item.get("name") == target:
+            return item
+    return None
+
+
 def update_external_connection(
     connection_id: str,
     *,
