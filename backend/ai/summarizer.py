@@ -14,7 +14,10 @@ async def summarize(command: str, results: list[dict], *, allow_ai: bool = True)
         f"- step {i+1}: {'success' if r.get('success') else 'failed'} — {r.get('data') or r.get('error')}"
         for i, r in enumerate(results)
     )
-    prompt = f"User command: {command}\n\nExecution results:\n{results_text}\n\nSummarize the result in 1-2 sentences in Korean."
+    prompt = (
+        f"User command: {command}\n\nExecution results:\n{results_text}\n\n"
+        "Summarize the result in 1-2 sentences in the same language as the user command."
+    )
 
     try:
         message = client.messages.create(

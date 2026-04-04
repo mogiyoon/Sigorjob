@@ -22,6 +22,7 @@ class Task:
     intent: str = ""
     steps: list[Step] = field(default_factory=list)
     used_ai: bool = False
+    ai_usage: dict[str, Any] = field(default_factory=dict)
     status: str = "pending"   # pending | running | done | failed | needs_clarification
     approval_reason: str = ""
     risk_level: str = "low"
@@ -29,6 +30,5 @@ class Task:
     summary: str = ""
     error: str = ""
     result_data: dict[str, Any] = field(default_factory=dict)
-    used_ai: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None

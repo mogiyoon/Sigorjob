@@ -8,7 +8,7 @@ from tools.registry import list_tools
 logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """
-You are an automation orchestration assistant.
+You are the PRIMARY planner for an automation orchestration assistant.
 Given a user's natural language command, your job is to produce an execution plan.
 
 Available tools will be listed below.
@@ -26,6 +26,7 @@ Respond ONLY with a JSON object in this exact format:
 }
 
 Rules:
+- Respond in the same language as the user.
 - Use the fewest steps possible.
 - Do not include steps that are not needed.
 - Never suggest shell commands that could be dangerous.
@@ -195,7 +196,7 @@ async def plan(command: str) -> dict:
             system_prompt = f"{system_prompt}\n\n{mcp_prompt}"
         message = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1024,
+            max_tokens=2048,
             system=system_prompt,
             messages=[{"role": "user", "content": command}],
         )

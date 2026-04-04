@@ -29,6 +29,28 @@ _TEXT_REQUIRED_TOOLS = {
     "translation_helper",
     "weather_alert_helper",
 }
+_AI_BYPASS_TOOLS = {
+    "calendar_helper",
+    "communication_helper",
+    "delivery_helper",
+    "draft_helper",
+    "reservation_helper",
+    "route_helper",
+    "travel_helper",
+    "weather_alert_helper",
+}
+_AI_BYPASS_INTENT_CATEGORIES = {
+    "crawl",
+    "file_copy",
+    "file_delete",
+    "file_move",
+    "file_read",
+    "file_write",
+    "open_url",
+    "reminder_schedule",
+    "search",
+    "shopping_search",
+}
 
 
 def load_rules():
@@ -40,7 +62,7 @@ def load_rules():
 
 
 async def route(command: str, context: dict | None = None) -> Task:
-    """명령어를 받아 Task 생성. 비AI 우선 → 실패 시 AI가 전체를 이어받음."""
+    """명령어를 받아 Task 생성."""
     if not _rules:
         load_rules()
 
@@ -78,8 +100,60 @@ async def route(command: str, context: dict | None = None) -> Task:
                 "action_text": custom_command["action_text"],
             }
         }
+        return await _route_legacy(task, normalized_command, clarification)
 
-    # 1. 먼저 비AI 경로를 끝까지 시도
+    direct_step = _match_rules(normalized_command)
+    if direct_step and direct_step.tool in _AI_BYPASS_TOOLS:
+        return await _complete_direct_route(task, normalized_command, direct_step)
+
+    direct_intent = detect_intent(normalized_command)
+    if direct_intent and direct_intent.category in _AI_BYPASS_INTENT_CATEGORIES:
+        return await _complete_direct_route(
+            task,
+            normalized_command,
+            Step(
+                tool=_intent_tool(direct_intent.category),
+                params=direct_intent.params,
+                description=direct_intent.description,
+            ),
+        )
+
+    if not has_api_key():
+        return await _route_legacy(task, normalized_command, clarification)
+
+    logger.info(f"[{task.id}] AI-first planning started")
+    await record_task_trace(
+        task.id,
+        stage="router",
+        event="ai_plan_requested",
+        detail={"reason": "api_key_available"},
+    )
+
+    plan = await ai_agent.plan(normalized_command)
+    task.intent = str(plan.get("intent", normalized_command) or normalized_command)
+    task.steps = _build_steps_from_plan(plan)
+    for step in task.steps:
+        _hydrate_step_params(step, normalized_command)
+
+    if task.steps:
+        task.used_ai = True
+        task.ai_usage["planner"] = "ai_agent.plan"
+        _annotate_risk(task)
+        await record_task_trace(
+            task.id,
+            stage="router",
+            event="route_completed",
+            status=task.status,
+            detail={"step_count": len(task.steps), "risk_level": task.risk_level, "used_ai": True},
+        )
+        return task
+
+    logger.info(f"[{task.id}] AI returned no executable steps, falling back to legacy routing")
+    return await _route_legacy(task, normalized_command, clarification)
+
+
+async def _route_legacy(task: Task, normalized_command: str, clarification: dict) -> Task:
+    """기존 규칙 우선 라우팅 경로."""
     step = _match_rules(normalized_command)
     if step is None:
         normalized_intent = detect_intent(normalized_command)
@@ -104,7 +178,6 @@ async def route(command: str, context: dict | None = None) -> Task:
         )
         return task
 
-    # 2. 비AI 경로가 실패한 뒤에만 AI가 개입
     if has_api_key():
         await record_task_trace(
             task.id,
@@ -170,12 +243,10 @@ async def route(command: str, context: dict | None = None) -> Task:
         detail={"reason": "no_rule_match"},
     )
     task.used_ai = True
+    task.ai_usage["planner"] = "ai_agent.plan"
     plan = await ai_agent.plan(normalized_command)
-    task.intent = plan.get("intent", normalized_command)
-    task.steps = [
-        Step(tool=s["tool"], params=s["params"], description=s.get("description", ""))
-        for s in plan.get("steps", [])
-    ]
+    task.intent = str(plan.get("intent", normalized_command) or normalized_command)
+    task.steps = _build_steps_from_plan(plan)
     for step in task.steps:
         _hydrate_step_params(step, normalized_command)
     if task.steps and _looks_like_automation_request(normalized_command):
@@ -217,6 +288,7 @@ async def route(command: str, context: dict | None = None) -> Task:
             ai_browser_hint = await ai_agent.browser_assist(normalized_command)
             if ai_browser_hint:
                 task.used_ai = True
+                task.ai_usage["browser_assist"] = "ai_agent.browser_assist"
                 assisted_intent = build_ai_assisted_browser_intent(ai_browser_hint, normalized_command)
                 if assisted_intent:
                     fallback_step = Step(
@@ -267,6 +339,47 @@ async def route(command: str, context: dict | None = None) -> Task:
         detail={"step_count": len(task.steps), "risk_level": task.risk_level},
     )
     return task
+
+
+async def _complete_direct_route(task: Task, normalized_command: str, step: Step) -> Task:
+    _hydrate_step_params(step, normalized_command)
+    logger.info(f"[{task.id}] rule matched: {step.tool}")
+    task.intent = normalized_command
+    task.steps = [step]
+    _annotate_risk(task)
+    await record_task_trace(
+        task.id,
+        stage="router",
+        event="rule_matched",
+        status=task.status,
+        detail={"tool": step.tool, "risk_level": task.risk_level},
+    )
+    return task
+
+
+def _build_steps_from_plan(plan: dict) -> list[Step]:
+    steps = plan.get("steps", [])
+    if not isinstance(steps, list):
+        return []
+
+    built_steps: list[Step] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        tool = str(step.get("tool") or "").strip()
+        if not tool:
+            continue
+        params = step.get("params")
+        built_steps.append(
+            Step(
+                tool=tool,
+                params=params if isinstance(params, dict) else {},
+                description=str(step.get("description", "") or ""),
+                condition=step.get("condition"),
+                param_template=bool(step.get("param_template", False)),
+            )
+        )
+    return built_steps
 
 
 def _build_clarification_context(command: str, context: dict) -> dict:
