@@ -1,0 +1,28 @@
+{
+  "id": "feat-frontend-playwright-install",
+  "title": "Add Playwright install button and status display to frontend setup page",
+  "goal": "프론트엔드 setup 페이지에 Playwright 설치 상태 표시와 Install 버튼을 추가한다. /setup/status의 playwright 필드를 읽어 설치 여부를 보여주고, 미설치 시 Install 버튼으로 /setup/playwright/install을 호출한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/lib/api.ts", "frontend/src/app/setup/page.tsx"]
+  },
+  "test_requirements": [
+    {"case": "api.ts has installPlaywright function", "expected": "function calls POST /setup/playwright/install"},
+    {"case": "Setup page shows Playwright status section", "expected": "section showing installed/not installed based on setup status"},
+    {"case": "Install button calls installPlaywright and shows loading", "expected": "button disabled during install with loading text"},
+    {"case": "After install success, status refreshes to show installed", "expected": "refetch setup status after install completes"}
+  ],
+  "constraints": [
+    "Playwright section appears in the Tools section of setup page",
+    "Follow existing card/section patterns",
+    "Install button should warn user it may take a few minutes",
+    "Do not modify backend files",
+    "Do not add new npm dependencies"
+  ],
+  "branch_name": "feat/frontend-playwright-install",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}
