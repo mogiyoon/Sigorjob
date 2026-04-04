@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from policy import auto_approval
+from orchestrator import capability_gate
 from orchestrator.task import Step, Task
 from orchestrator import result_quality
 from tools import registry
@@ -82,6 +83,31 @@ def record_approved_patterns(task: Task) -> list[dict]:
 
 async def run(task: Task, *, persist: bool = True) -> Task:
     """Task를 받아 순서대로 Tool 실행."""
+    missing_capabilities = capability_gate.check_capabilities(task.steps)
+    if missing_capabilities:
+        _mark_task_needs_setup(task, missing_capabilities)
+        if not persist:
+            await record_task_trace(
+                task.id,
+                stage="orchestrator",
+                event="needs_setup_without_persistence",
+                status=task.status,
+                detail={"missing_capabilities": missing_capabilities},
+            )
+            return task
+
+        async with AsyncSessionLocal() as session:
+            await _update_db(task, session)
+            await record_task_trace(
+                task.id,
+                stage="orchestrator",
+                event="needs_setup",
+                status=task.status,
+                detail={"missing_capabilities": missing_capabilities},
+                session=session,
+            )
+        return task
+
     if not persist:
         return await _run_without_persistence(task)
 
@@ -441,6 +467,24 @@ def _maybe_enqueue_mobile_notification(task: Task) -> None:
     enqueue_notification(title=title, body=body)
 
 
+def _mark_task_needs_setup(task: Task, missing_capabilities: list[dict]) -> None:
+    primary = missing_capabilities[0]
+    task.status = "needs_setup"
+    task.summary = str(primary.get("setup_message") or "")
+    task.result_data = {
+        **task.result_data,
+        "missing_capabilities": missing_capabilities,
+        "setup_action": {
+            "connection_id": primary.get("connection_id"),
+            "capability": primary.get("capability_name"),
+            "action": primary.get("setup_action"),
+        },
+        "setup_message": primary.get("setup_message"),
+        "fallback_available": any(bool(item.get("fallback_available")) for item in missing_capabilities),
+        "fallback_description": primary.get("fallback_description") or "",
+    }
+
+
 async def _update_db(task: Task, session):
     from sqlalchemy import select
     result = await session.execute(select(TaskModel).where(TaskModel.id == task.id))
@@ -450,7 +494,10 @@ async def _update_db(task: Task, session):
         row = TaskModel(id=task.id, command=task.command)
         session.add(row)
 
-    row.status = TaskStatus(task.status)
+    try:
+        row.status = TaskStatus(task.status)
+    except ValueError:
+        row.status = task.status
     row.plan = json.dumps(
         [
             {
