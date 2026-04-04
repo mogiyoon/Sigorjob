@@ -28,12 +28,45 @@ def _default_db_url() -> str:
     return f"sqlite+aiosqlite:///{db_path}"
 
 
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
     database_url: str = _default_db_url()
     log_level: str = "INFO"
-    allowed_shell_commands: List[str] = ["ls", "pwd", "echo"]
-    allowed_directories: List[str] = [str(_app_data_dir()), "/tmp"]
+    allowed_shell_commands: List[str] = [
+        "ls",
+        "pwd",
+        "echo",
+        "pip",
+        "npm",
+        "node",
+        "python3",
+        "git",
+        "curl",
+        "wget",
+        "cat",
+        "grep",
+        "find",
+        "mkdir",
+        "cp",
+        "mv",
+        "touch",
+        "head",
+        "tail",
+        "wc",
+        "sort",
+        "uniq",
+        "diff",
+    ]
+    allowed_directories: List[str] = [
+        str(_app_data_dir()),
+        "/tmp",
+        str(Path.home()),
+        str(_project_root()),
+    ]
     # 터널 및 인증 설정
     # 개발 중에는 False, 외부 배포 시 True
     enable_tunnel: bool = False
