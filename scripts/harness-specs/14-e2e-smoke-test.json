@@ -1,0 +1,34 @@
+{
+  "id": "feat-e2e-smoke-test",
+  "title": "Add E2E smoke test script for full pipeline verification",
+  "goal": "전체 파이프라인(명령 → 라우터 → 오케스트레이터 → 도구 → 결과)을 검증하는 스모크 테스트 스크립트를 추가한다. 실제 외부 서비스 호출 없이 mock 서버로 MCP/OAuth/Playwright 경로를 포함해 End-to-End 흐름을 테스트한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_e2e_smoke.py"],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {"case": "Simple command routes and executes without AI", "expected": "time command returns current time, status=done, used_ai=False"},
+    {"case": "File read command routes and executes", "expected": "/tmp file read returns content, status=done"},
+    {"case": "Shell command routes and executes", "expected": "ls command returns directory listing, status=done"},
+    {"case": "Calendar command routes to calendar_helper", "expected": "routes to calendar_helper with correct params"},
+    {"case": "Unknown command triggers AI fallback", "expected": "used_ai=True, AI produces steps"},
+    {"case": "Multi-step task with dynamic params executes", "expected": "step 2 receives resolved value from step 1"},
+    {"case": "Medium risk task gets approval_required status", "expected": "task.status == approval_required"},
+    {"case": "Approval followed by execution completes task", "expected": "after approval, task.status == done"}
+  ],
+  "constraints": [
+    "Do not make real HTTP requests to external services",
+    "Do not require Playwright to be installed (skip browser_auto tests if missing)",
+    "Do not require Anthropic API key (mock AI responses)",
+    "All tests must use persist=False on orchestrator.run()",
+    "Mock record_task_trace to avoid DB writes",
+    "Test the actual route() -> run() pipeline, not individual functions",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/e2e-smoke-test",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_e2e_smoke -v"
+}

@@ -1,0 +1,31 @@
+{
+  "id": "feat-frontend-mcp-presets",
+  "title": "Add MCP preset install/uninstall UI to frontend setup page",
+  "goal": "프론트엔드 setup 페이지에 MCP 프리셋 섹션을 추가한다. GET /setup/mcp/presets로 프리셋 목록을 조회하고 Install/Uninstall 버튼으로 원클릭 설치/삭제를 제공한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/lib/api.ts", "frontend/src/app/setup/page.tsx"]
+  },
+  "test_requirements": [
+    {"case": "api.ts has getMcpPresets function", "expected": "function calls GET /setup/mcp/presets and returns preset list"},
+    {"case": "api.ts has installMcpPreset function", "expected": "function calls POST /setup/mcp/presets/{id}/install"},
+    {"case": "api.ts has uninstallMcpPreset function", "expected": "function calls POST /setup/mcp/presets/{id}/uninstall"},
+    {"case": "Setup page shows MCP Presets section", "expected": "section with preset cards showing name, description, installed status"},
+    {"case": "Install button triggers install and refreshes state", "expected": "button calls installMcpPreset then refetches presets"},
+    {"case": "Installed preset shows Uninstall button", "expected": "installed=true presets show uninstall action"}
+  ],
+  "constraints": [
+    "MCP Presets section appears after the External Connections section",
+    "Follow existing card patterns from the setup page",
+    "Use existing useLanguage() for strings",
+    "Do not modify backend files",
+    "Do not add new npm dependencies",
+    "Loading state on Install/Uninstall buttons"
+  ],
+  "branch_name": "feat/frontend-mcp-presets",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}

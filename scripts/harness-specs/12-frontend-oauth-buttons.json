@@ -1,0 +1,32 @@
+{
+  "id": "feat-frontend-oauth-buttons",
+  "title": "Add OAuth connect/disconnect buttons to frontend setup page",
+  "goal": "프론트엔드 setup 페이지에 Google Calendar/Gmail 연결 버튼을 추가한다. 'Connect' 클릭 시 /setup/connections/{id}/authorize 호출 후 OAuth URL을 새 창으로 열고, 연결 완료 후 상태를 갱신한다. 연결된 서비스에는 'Disconnect' 버튼을 표시한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/lib/api.ts", "frontend/src/app/setup/page.tsx"]
+  },
+  "test_requirements": [
+    {"case": "api.ts has authorizeConnection function", "expected": "function calls POST /setup/connections/{id}/authorize and returns {auth_url}"},
+    {"case": "api.ts has callbackConnection function", "expected": "function calls POST /setup/connections/{id}/callback with code and state"},
+    {"case": "api.ts has disconnectConnection function", "expected": "function calls POST /setup/connections/{id}/disconnect"},
+    {"case": "Available connection card shows Connect button for google_calendar", "expected": "button with onClick that calls authorizeConnection and opens auth_url"},
+    {"case": "Connected connection card shows Disconnect button", "expected": "button with onClick that calls disconnectConnection and refreshes status"},
+    {"case": "Connect button shows loading state while OAuth in progress", "expected": "button disabled with spinner/text during connecting"}
+  ],
+  "constraints": [
+    "Use existing openExternalUrl() from lib/external.ts for opening OAuth URL",
+    "Follow existing button patterns (gray-900 bg for primary, red for destructive)",
+    "Use existing useLanguage() t() for any new strings",
+    "Do not modify backend files",
+    "Do not add new npm dependencies",
+    "OAuth callback handling: after user returns, poll /setup/status every 2 seconds for 30 seconds to detect connection state change",
+    "Maintain existing responsive layout and Tailwind classes"
+  ],
+  "branch_name": "feat/frontend-oauth-buttons",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}
