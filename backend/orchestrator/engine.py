@@ -1,10 +1,12 @@
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
 from orchestrator.task import Step, Task
 from orchestrator import result_quality
 from tools import registry
+from ai import agent as ai_agent
 from ai import summarizer
 from ai import reviewer as ai_reviewer
 from db.models import ApprovalRequest, ApprovalStatus, Task as TaskModel, TaskLog, TaskStatus
@@ -14,6 +16,7 @@ from notifications.store import enqueue_notification
 from debug_trace import record_task_trace
 
 logger = get_logger(__name__)
+_TEMPLATE_PATTERN = re.compile(r"\$\{([^{}]+)\}")
 
 
 async def save_pending(task: Task) -> None:
@@ -111,11 +114,26 @@ async def _run_without_persistence(task: Task) -> Task:
 
 
 async def _execute_steps(task: Task, session=None) -> None:
-    review_budget = 1
+    review_budget = 3
     step_index = 0
     while step_index < len(task.steps):
         i = step_index
         step = task.steps[step_index]
+        if not _should_execute_step(task, step):
+            await record_task_trace(
+                task.id,
+                stage="orchestrator",
+                event="step_skipped",
+                status=task.status,
+                detail={"step_index": i + 1, "tool": step.tool, "condition": step.condition},
+                session=session,
+            )
+            step_index += 1
+            continue
+
+        if step.param_template:
+            step.params = _resolve_template_value(step.params, task)
+
         await record_task_trace(
             task.id,
             stage="orchestrator",
@@ -212,6 +230,11 @@ async def _execute_steps(task: Task, session=None) -> None:
                 if review.get("acceptable"):
                     if session is not None:
                         await _log(task.id, "info", f"step {i+1} AI review accepted result", session)
+                    task.used_ai = True
+                    step_index += 1
+                    continue
+                inserted_steps = await _continue_with_ai_plan(task, step, result, quality.to_dict(), after_step_index=i, session=session)
+                if inserted_steps:
                     step_index += 1
                     continue
                 retry_step = review.get("retry_step")
@@ -221,6 +244,7 @@ async def _execute_steps(task: Task, session=None) -> None:
                         params=retry_step["params"],
                         description=retry_step.get("description", "ai_retry"),
                     )
+                    task.used_ai = True
                     task.steps.insert(step_index + 1, inserted)
                     if session is not None:
                         await _log(task.id, "warning", f"step {i+1} AI requested retry: {inserted.description}", session)
@@ -254,10 +278,71 @@ async def _execute_steps(task: Task, session=None) -> None:
         step_index += 1
 
     task.status = "done"
-    task.summary = await summarizer.summarize(task.command, task.results)
+    task.summary = await summarizer.summarize(task.command, task.results, allow_ai=task.used_ai)
     if "모바일" in task.command.lower() or "mobile" in task.command.lower():
         task.summary = f"{task.summary} 모바일 앱의 작업 목록에서도 확인할 수 있습니다.".strip()
     _maybe_enqueue_mobile_notification(task)
+
+
+async def _continue_with_ai_plan(
+    task: Task,
+    step: Step,
+    result: dict,
+    quality: dict,
+    *,
+    after_step_index: int,
+    session=None,
+) -> list[Step]:
+    continuation = await ai_agent.continue_task(
+        task.command,
+        {
+            "summary": task.summary,
+            "results": task.results,
+            "latest_step": {
+                "tool": step.tool,
+                "params": step.params,
+                "description": step.description,
+            },
+            "latest_result": result,
+            "quality": quality,
+        },
+    )
+    if not continuation:
+        return []
+
+    inserted_steps = [
+        Step(
+            tool=next_step["tool"],
+            params=next_step["params"],
+            description=next_step.get("description", ""),
+        )
+        for next_step in continuation.get("steps", [])
+        if next_step.get("tool") and isinstance(next_step.get("params"), dict)
+    ]
+    if not inserted_steps:
+        return []
+
+    task.used_ai = True
+    for offset, inserted in enumerate(inserted_steps, start=1):
+        task.steps.insert(after_step_index + offset, inserted)
+
+    if session is not None:
+        descriptions = ", ".join(step.description or step.tool for step in inserted_steps)
+        await _log(task.id, "warning", f"AI continuation planned next steps: {descriptions}", session)
+
+    await record_task_trace(
+        task.id,
+        stage="orchestrator",
+        event="ai_continuation_inserted",
+        status=task.status,
+        detail={
+            "after_step_index": after_step_index + 1,
+            "step_count": len(inserted_steps),
+            "tools": [step.tool for step in inserted_steps],
+        },
+        session=session,
+    )
+    return inserted_steps
 
 
 def _maybe_enqueue_mobile_notification(task: Task) -> None:
@@ -299,6 +384,8 @@ async def _update_db(task: Task, session):
                 "params": s.params,
                 "description": s.description,
                 "risk_level": s.risk_level,
+                "condition": s.condition,
+                "param_template": s.param_template,
             }
             for s in task.steps
         ]
@@ -328,7 +415,102 @@ def deserialize_task(task_id: str, command: str, plan_json: str | None) -> Task:
             params=step["params"],
             description=step.get("description", ""),
             risk_level=step.get("risk_level", "low"),
+            condition=step.get("condition"),
+            param_template=step.get("param_template", False),
         )
         for step in steps_data
     ]
     return task
+
+
+def _should_execute_step(task: Task, step: Step) -> bool:
+    if step.condition is None:
+        return True
+
+    resolved = _resolve_template_value(step.condition, task)
+    if isinstance(resolved, bool):
+        return resolved
+    if resolved is None:
+        return False
+    if isinstance(resolved, str):
+        normalized = resolved.strip().lower()
+        if normalized in {"", "0", "false", "no", "off", "none", "null"}:
+            return False
+    return bool(resolved)
+
+
+def _resolve_template_value(value, task: Task):
+    if isinstance(value, dict):
+        return {key: _resolve_template_value(item, task) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_template_value(item, task) for item in value]
+    if not isinstance(value, str):
+        return value
+
+    exact_match = _TEMPLATE_PATTERN.fullmatch(value)
+    if exact_match:
+        resolved = _resolve_reference(exact_match.group(1), task)
+        return "" if resolved is _MissingValue else resolved
+
+    def replace(match: re.Match[str]) -> str:
+        resolved = _resolve_reference(match.group(1), task)
+        if resolved is _MissingValue:
+            return ""
+        return str(resolved)
+
+    return _TEMPLATE_PATTERN.sub(replace, value)
+
+
+class _MissingValueType:
+    pass
+
+
+_MissingValue = _MissingValueType()
+
+
+def _resolve_reference(reference: str, task: Task):
+    current = {"steps": task.steps}
+    for token in _parse_reference_tokens(reference):
+        current = _read_reference_token(current, token)
+        if current is _MissingValue:
+            return _MissingValue
+    return current
+
+
+def _parse_reference_tokens(reference: str) -> list[str | int]:
+    tokens: list[str | int] = []
+    for part in reference.split("."):
+        if not part:
+            return []
+        position = 0
+        while position < len(part):
+            if part[position] == "[":
+                end = part.find("]", position)
+                if end == -1:
+                    return []
+                index = part[position + 1 : end]
+                if not index.isdigit():
+                    return []
+                tokens.append(int(index))
+                position = end + 1
+                continue
+
+            next_bracket = part.find("[", position)
+            if next_bracket == -1:
+                tokens.append(part[position:])
+                break
+            tokens.append(part[position:next_bracket])
+            position = next_bracket
+    return tokens
+
+
+def _read_reference_token(current, token: str | int):
+    if isinstance(token, int):
+        if isinstance(current, (list, tuple)) and 0 <= token < len(current):
+            return current[token]
+        return _MissingValue
+
+    if isinstance(current, dict):
+        return current.get(token, _MissingValue)
+
+    return getattr(current, token, _MissingValue)
