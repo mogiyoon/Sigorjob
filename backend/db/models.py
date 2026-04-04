@@ -15,6 +15,7 @@ class TaskStatus(str, enum.Enum):
     failed = "failed"
     needs_clarification = "needs_clarification"
     approval_required = "approval_required"
+    needs_setup = "needs_setup"
     cancelled = "cancelled"
 
 
