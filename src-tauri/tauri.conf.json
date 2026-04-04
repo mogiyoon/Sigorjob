@@ -32,6 +32,11 @@
       "binaries/backend",
       "binaries/cloudflared"
     ],
-    "resources": []
+    "resources": [],
+    "macOS": {
+      "entitlements": "Entitlements.plist",
+      "signingIdentity": null,
+      "infoPlist": "Info.plist"
+    }
   }
 }

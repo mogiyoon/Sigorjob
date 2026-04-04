@@ -80,7 +80,17 @@ PYINSTALLER_CONFIG_DIR="$PYINSTALLER_CONFIG_DIR" python3 -m PyInstaller main.py 
   --hidden-import connections.registry \
   --hidden-import connections.drivers \
   --hidden-import connections.drivers.google_calendar \
-  --hidden-import connections.drivers.template_connector
+  --hidden-import connections.drivers.template_connector \
+  --hidden-import connections.drivers.gmail \
+  --hidden-import connections.drivers.mcp_client \
+  --hidden-import connections.oauth \
+  --hidden-import connections.oauth_scopes \
+  --hidden-import connections.mcp_presets \
+  --hidden-import policy.auto_approval \
+  --hidden-import tools.mcp \
+  --hidden-import tools.mcp.tool \
+  --hidden-import tools.browser_auto \
+  --hidden-import tools.browser_auto.tool
 
 if [ ! -f "$BACKEND_DIR/dist/backend" ]; then
   echo "Backend build failed: dist/backend was not created."

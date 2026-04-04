@@ -148,7 +148,7 @@ class NormalizedIntent:
 
 def normalize_command(command: str) -> str:
     normalized = re.sub(r"\s+", " ", command).strip()
-    normalized = re.sub(r"(https?://[^\s가-힣]+)[을를이가은는]\b", r"\1", normalized)
+    normalized = re.sub(r"(https?://[^\s가-힣]+)(?:에서|으로|부터|까지|에게|한테|이랑|이나|처럼|만큼|조차|마저|밖에|[을를이가은는도에의로서])\b", r"\1", normalized)
     return normalized
 
 
