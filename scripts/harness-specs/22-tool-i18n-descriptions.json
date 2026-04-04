@@ -1,0 +1,46 @@
+{
+  "id": "feat-tool-i18n-descriptions",
+  "title": "Add bilingual tool/plugin descriptions with i18n support",
+  "goal": "모든 tool과 plugin에 한국어/영어 설명을 분리 제공한다. BaseTool에 description_ko/description_en 필드를 추가하고, /tools API에서 locale 파라미터에 따라 해당 언어 설명을 반환한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_tool_i18n.py"],
+    "modified_files": [
+      "backend/tools/base.py",
+      "backend/tools/file/tool.py",
+      "backend/tools/shell/tool.py",
+      "backend/tools/crawler/tool.py",
+      "backend/tools/time/tool.py",
+      "backend/tools/system_info/tool.py",
+      "backend/tools/browser/tool.py",
+      "backend/tools/browser_auto/tool.py",
+      "backend/tools/mcp/tool.py",
+      "backend/tools/ai_process/tool.py",
+      "backend/tools/summarize/tool.py",
+      "backend/tools/registry.py"
+    ]
+  },
+  "test_requirements": [
+    {"case": "BaseTool has description_ko and description_en fields", "expected": "both fields exist with defaults"},
+    {"case": "schema(locale='ko') returns Korean description", "expected": "description field is Korean text only"},
+    {"case": "schema(locale='en') returns English description", "expected": "description field is English text only"},
+    {"case": "All tools have both ko and en descriptions", "expected": "no tool has empty description_ko or description_en"},
+    {"case": "list_tools(locale='ko') returns all Korean descriptions", "expected": "every tool dict has Korean description"},
+    {"case": "Korean description contains no English words", "expected": "description_ko is pure Korean (allow technical terms)"},
+    {"case": "English description contains no Korean characters", "expected": "description_en has no Hangul characters"}
+  ],
+  "constraints": [
+    "Keep existing description field for backward compatibility (defaults to description_en)",
+    "Add description_ko and description_en as class attributes on each tool",
+    "schema() method accepts optional locale parameter ('ko' or 'en', default 'en')",
+    "list_tools() in registry.py accepts optional locale parameter",
+    "Do not change tool behavior — only descriptions",
+    "Plugin descriptions are separate (not in scope — only tools)",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/tool-i18n-descriptions",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_tool_i18n -v"
+}

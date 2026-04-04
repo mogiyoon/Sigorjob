@@ -63,6 +63,37 @@ This document collects practical cautions for using and extending Sigorjob.
 - External links, clipboard flows, new-window assumptions, and browser-only APIs should be treated as runtime-sensitive.
 - Prefer shared helpers for opening external URLs and other browser-assumed actions instead of sprinkling raw `target="_blank"` or browser globals throughout the UI.
 
+## Implementation Cautions
+
+### Tauri vs Web runtime
+- Features that work in browser may silently fail or not render in Tauri (desktop app).
+- Never use `window.open()`, `target="_blank"`, `navigator.clipboard`, or other browser-only APIs directly. Always go through shared helpers (e.g., `openExternalUrl()` from `lib/external.ts`).
+- Web-only UI state (e.g., features gated by `typeof window !== "undefined"`) may not behave as expected in Tauri's WebView.
+- Always test new frontend features in BOTH browser mode AND packaged Tauri app.
+
+### AI should prefer real execution over link handoffs
+- When AI plans a task, it should prefer actual API execution (Calendar API, Gmail API, MCP tool call) over opening a link for the user to finish manually.
+- Link-based handoffs ("open Google Calendar page") are fallbacks, not primary actions.
+- The priority order is: direct API call > MCP tool > plugin with connector > link handoff.
+- AI system prompt must reinforce this preference.
+
+### Tool descriptions must be language-consistent
+- Korean tool descriptions should contain only Korean.
+- English tool descriptions should contain only English.
+- Do not mix languages within a single description string.
+- The frontend i18n system (`t()` function) handles display language — backend provides both.
+
+### Approval flow must be visible
+- When a task requires approval (medium/high risk), the user must see a clear prompt.
+- Silent blocking (task just stays "pending" with no explanation) is not acceptable.
+- Frontend should show a modal/banner when `task.status === "approval_required"`.
+
+### Fallback behavior
+- When a tool is not found, the orchestrator falls back to `ai_process` — never silently fails.
+- When AI API key is missing, the router falls back to legacy rule-based routing.
+- When OAuth tokens are missing, drivers fall back to link generation.
+- Every layer has a fallback. No dead ends.
+
 ## Recommended Direction
 
 - Keep expanding common non-AI request bundles first.

@@ -1,0 +1,29 @@
+{
+  "id": "feat-ai-prefer-real-execution",
+  "title": "Update AI system prompt to prefer real API execution over link handoffs",
+  "goal": "AI 시스템 프롬프트를 수정���여 링크 열기보다 실제 API 실행을 우선하도록 한다. 예: 캘린더 일정 추가 시 'Google Calendar 링크 열기'보다 'calendar_helper로 실제 이벤트 생성'을 우선. Gmail 발송 시 'mailto 링크'보다 'MCP/Gmail API로 실제 발송'을 우선.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_ai_execution_priority.py"],
+    "modified_files": ["backend/ai/agent.py"]
+  },
+  "test_requirements": [
+    {"case": "System prompt contains execution priority instruction", "expected": "prompt includes 'prefer direct API calls over opening links'"},
+    {"case": "System prompt lists priority order", "expected": "prompt mentions: direct API > MCP tool > connector plugin > link handoff"},
+    {"case": "System prompt instructs against link-only plans for actionable requests", "expected": "prompt says 'do not open a link when a helper tool can complete the action directly'"},
+    {"case": "System prompt mentions calendar_helper for calendar requests", "expected": "prompt guides AI to use calendar_helper instead of browser for calendar"},
+    {"case": "System prompt mentions Gmail/email tools for email requests", "expected": "prompt guides AI to use mcp gmail or draft_helper instead of mailto links"}
+  ],
+  "constraints": [
+    "Only modify SYSTEM_PROMPT and PLANNING_CAPABILITIES_PROMPT in agent.py",
+    "Do not change function signatures or logic",
+    "Do not modify tools, plugins, or router",
+    "Tests verify prompt content, not AI behavior (no real AI calls)",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/ai-prefer-real-execution",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_ai_execution_priority -v"
+}

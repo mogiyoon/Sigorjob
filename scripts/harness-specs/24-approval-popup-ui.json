@@ -1,0 +1,32 @@
+{
+  "id": "feat-approval-popup-ui",
+  "title": "Add real-time approval modal when task requires permission",
+  "goal": "작업이 approval_required 상태가 되면 프론트엔드에서 실시간 모달을 표시한다. 사용자가 승인/거부 버튼을 누르면 즉시 작업이 이어지거나 취소된다. 조용히 pending 상태로 멈추지 않는다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/app/page.tsx", "frontend/src/lib/api.ts"]
+  },
+  "test_requirements": [
+    {"case": "api.ts has approveTask function", "expected": "function calls POST /approval/{taskId} with approved=true"},
+    {"case": "api.ts has rejectTask function", "expected": "function calls POST /approval/{taskId} with approved=false"},
+    {"case": "Main page polls task status after command submission", "expected": "after POST /command, polls /task/{id} every 1 second"},
+    {"case": "Approval modal appears when task status is approval_required", "expected": "modal with task command, risk level, reason, approve/reject buttons"},
+    {"case": "Approve button calls approveTask and resumes polling", "expected": "task continues execution after approval"},
+    {"case": "Reject button calls rejectTask and shows rejection message", "expected": "task marked failed, modal closes"}
+  ],
+  "constraints": [
+    "Modal must work in both browser AND Tauri (no window.open, no browser-only APIs)",
+    "Use existing Tailwind CSS patterns from setup page",
+    "Modal shows: command text, risk level badge, approval reason, approve/reject buttons",
+    "Polling stops after task reaches done/failed status or after 60 seconds timeout",
+    "Do not modify backend files",
+    "Do not add new npm dependencies",
+    "Approval modal should overlay current page content, not navigate away"
+  ],
+  "branch_name": "feat/approval-popup-ui",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}
