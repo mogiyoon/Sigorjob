@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import ApprovalRequest, ApprovalStatus, Task as TaskModel, TaskStatus
 from db.session import get_session
 from orchestrator import engine as orchestrator
+from policy import auto_approval
 
 router = APIRouter()
 
@@ -82,8 +83,22 @@ async def approval_action(
 
     approval.status = ApprovalStatus.approved
     approval.resolved_at = datetime.now(timezone.utc)
+    task = orchestrator.deserialize_task(task_row.id, task_row.command, task_row.plan)
+    task.risk_level = approval.risk_level
+    orchestrator.record_approved_patterns(task)
     await session.commit()
 
-    task = orchestrator.deserialize_task(task_row.id, task_row.command, task_row.plan)
     asyncio.create_task(orchestrator.run(task))
     return {"task_id": task_id, "status": "running"}
+
+
+@router.get("/approvals/auto")
+async def list_auto_approvals():
+    return {"patterns": auto_approval.list_patterns()}
+
+
+@router.delete("/approvals/auto/{pattern_id}")
+async def delete_auto_approval(pattern_id: str):
+    if not auto_approval.remove_pattern(pattern_id):
+        raise HTTPException(status_code=404, detail="auto approval pattern not found")
+    return {"success": True}

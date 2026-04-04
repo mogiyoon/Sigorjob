@@ -3,6 +3,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+from policy import auto_approval
 from orchestrator.task import Step, Task
 from orchestrator import result_quality
 from tools import registry
@@ -33,6 +34,10 @@ async def save_pending(task: Task) -> None:
 
 
 async def save_approval_request(task: Task) -> None:
+    if not requires_manual_approval(task):
+        await save_pending(task)
+        return
+
     async with AsyncSessionLocal() as session:
         task.status = "approval_required"
         task.summary = task.approval_reason or "승인이 필요한 작업입니다."
@@ -55,6 +60,24 @@ async def save_approval_request(task: Task) -> None:
         )
         session.add(approval)
         await session.commit()
+
+
+def requires_manual_approval(task: Task) -> bool:
+    if task.risk_level == "high":
+        return True
+    if task.risk_level != "medium":
+        return False
+
+    approval_steps = _approval_target_steps(task)
+    if not approval_steps:
+        return True
+    return any(not auto_approval.is_auto_approved(step.tool, step.params) for step in approval_steps)
+
+
+def record_approved_patterns(task: Task) -> list[dict]:
+    if task.risk_level != "medium":
+        return []
+    return [auto_approval.record_approved_pattern(step.tool, step.params) for step in _approval_target_steps(task)]
 
 
 async def run(task: Task, *, persist: bool = True) -> Task:
@@ -470,6 +493,15 @@ def _should_execute_step(task: Task, step: Step) -> bool:
         if normalized in {"", "0", "false", "no", "off", "none", "null"}:
             return False
     return bool(resolved)
+
+
+def _approval_target_steps(task: Task) -> list[Step]:
+    steps = [step for step in task.steps if step.risk_level == "medium"]
+    if steps:
+        return steps
+    if task.risk_level == "medium":
+        return list(task.steps)
+    return []
 
 
 def _resolve_template_value(value, task: Task):
