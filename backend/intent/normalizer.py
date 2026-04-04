@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import quote_plus
 
+from intent.korean import strip_particles_from_url
+
 
 SEARCH_KEYWORDS = ("검색", "search", "찾아", "찾아줘", "알아봐", "보여줘")
 NEWS_KEYWORDS = ("뉴스", "기사", "헤드라인", "보도")
@@ -148,7 +150,7 @@ class NormalizedIntent:
 
 def normalize_command(command: str) -> str:
     normalized = re.sub(r"\s+", " ", command).strip()
-    normalized = re.sub(r"(https?://[^\s가-힣]+)(?:에서|으로|부터|까지|에게|한테|이랑|이나|처럼|만큼|조차|마저|밖에|[을를이가은는도에의로서])\b", r"\1", normalized)
+    normalized = strip_particles_from_url(normalized)
     return normalized
 
 
