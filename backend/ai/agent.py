@@ -38,6 +38,16 @@ Rules:
 - Return steps as [] if the best remaining action would only be a vague generic search page.
 """
 
+PLANNING_CAPABILITIES_PROMPT = """
+Planning capabilities:
+- The `browser_auto` tool is for guided browser automation with actions such as `navigate`, `click`, `type`, `screenshot`, and `extract_text`.
+- For multi-step plans, prefer dynamic parameters instead of hardcoding repeated values when a later step depends on an earlier result.
+- Use `${steps[N].result.data.field}` syntax to reference prior step outputs, including nested fields and list indexes when needed.
+- When a step uses dynamic parameter templates, include `"param_template": true` on that step so the executor resolves `${...}` values at runtime.
+- You may include a `condition` field on a step when it should run only if a boolean condition is true.
+- Use `condition` and dynamic parameters actively in multi-step plans to keep plans concise, data-driven, and safe.
+"""
+
 BROWSER_ASSIST_PROMPT = """
 You are a fallback classifier for a desktop automation assistant.
 The main planner could not produce a reliable tool plan.
@@ -171,11 +181,16 @@ async def plan(command: str) -> dict:
     try:
         plugin_instructions = get_ai_instructions()
         tools_prompt = _build_tools_prompt()
+        planning_capabilities_prompt = _build_planning_capabilities_prompt()
         mcp_prompt = _build_mcp_prompt()
-        system_prompt = f"{SYSTEM_PROMPT}\n\nAvailable tools:\n{tools_prompt}"
+        system_prompt = (
+            f"{SYSTEM_PROMPT}\n\nAvailable tools:\n{tools_prompt}\n\n{planning_capabilities_prompt}"
+        )
         if plugin_instructions:
             system_prompt = f"{SYSTEM_PROMPT}\n\nPlugin-specific guidance:\n{plugin_instructions}"
-            system_prompt = f"{system_prompt}\n\nAvailable tools:\n{tools_prompt}"
+            system_prompt = (
+                f"{system_prompt}\n\nAvailable tools:\n{tools_prompt}\n\n{planning_capabilities_prompt}"
+            )
         if mcp_prompt:
             system_prompt = f"{system_prompt}\n\n{mcp_prompt}"
         message = client.messages.create(
@@ -285,8 +300,11 @@ async def continue_task(command: str, current_result: dict) -> dict | None:
         return None
     try:
         tools_prompt = _build_tools_prompt()
+        planning_capabilities_prompt = _build_planning_capabilities_prompt()
         mcp_prompt = _build_mcp_prompt()
-        system_prompt = f"{TASK_CONTINUATION_PROMPT}\n\nAvailable tools:\n{tools_prompt}"
+        system_prompt = (
+            f"{TASK_CONTINUATION_PROMPT}\n\nAvailable tools:\n{tools_prompt}\n\n{planning_capabilities_prompt}"
+        )
         if mcp_prompt:
             system_prompt = f"{system_prompt}\n\n{mcp_prompt}"
         payload = {
@@ -354,6 +372,10 @@ def _build_tools_prompt() -> str:
     if not tools:
         return "- browser: prepare a web URL for opening in the client UI"
     return "\n".join(f"- {tool['name']}: {tool['description']}" for tool in tools)
+
+
+def _build_planning_capabilities_prompt() -> str:
+    return PLANNING_CAPABILITIES_PROMPT.strip()
 
 
 def _build_mcp_prompt() -> str:
