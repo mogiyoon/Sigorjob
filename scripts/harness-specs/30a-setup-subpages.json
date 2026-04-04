@@ -1,0 +1,33 @@
+{
+  "id": "feat-setup-subpages",
+  "title": "Create empty setup subpage shells for connections, permissions, tools",
+  "goal": "설정 하위 페이지 3개의 빈 껍데기를 만든다. /setup/connections, /setup/permissions, /setup/tools. 각 페이지는 제목 + 뒤로가기 버튼만 있는 최소 구조.",
+  "implementation_locations": {
+    "new_files": [
+      "frontend/src/app/setup/connections/page.tsx",
+      "frontend/src/app/setup/permissions/page.tsx",
+      "frontend/src/app/setup/tools/page.tsx"
+    ],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {"case": "connections page renders without error", "expected": "page exports default function with title 외부 서비스 연결"},
+    {"case": "permissions page renders without error", "expected": "page exports default function with title 권한 관리"},
+    {"case": "tools page renders without error", "expected": "page exports default function with title 도구 설정"},
+    {"case": "Each page has back link to /setup", "expected": "each page has link to /setup with ← 설정으로 돌아가기"}
+  ],
+  "constraints": [
+    "Minimal pages — just title + back button + placeholder text",
+    "Use existing Tailwind patterns from setup page",
+    "Use useLanguage() t() for all text",
+    "Add ko/en keys to LanguageProvider.tsx for new page titles",
+    "Do not modify existing setup/page.tsx yet",
+    "Must work in Tauri (use Next.js Link, not window.location)"
+  ],
+  "branch_name": "feat/setup-subpages",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}

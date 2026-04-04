@@ -1,0 +1,35 @@
+{
+  "id": "feat-setup-main-simplify",
+  "title": "Simplify main setup page to summary cards with links to subpages",
+  "goal": "설정 메인 페이지를 심플한 요약 카드 뷰로 바꾼다. 모바일 연결과 AI 키 설정은 메인에 유지하고, External connections/Permissions/Tools 섹션은 상태 요약 카드 + '자세히 보기' 링크로 대체한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/app/setup/page.tsx", "frontend/src/components/LanguageProvider.tsx"]
+  },
+  "test_requirements": [
+    {"case": "Main page has summary card for connections", "expected": "card shows connected count like 0/2 연결됨 with link to /setup/connections"},
+    {"case": "Main page has summary card for permissions", "expected": "card shows allowed count like 5/12 허용됨 with link to /setup/permissions"},
+    {"case": "Main page has summary card for tools", "expected": "card shows tool status with link to /setup/tools"},
+    {"case": "Mobile and AI sections remain on main page", "expected": "tunnel and API key UI unchanged"},
+    {"case": "Detailed connection UI removed from main page", "expected": "no individual Gmail/Calendar cards on main"},
+    {"case": "Detailed permission toggles removed from main page", "expected": "no individual permission switches on main"}
+  ],
+  "constraints": [
+    "Keep mobile tunnel section (모바일 연결) fully on main page",
+    "Keep AI key section (AI 설정) fully on main page",
+    "Replace External connections section with summary card → link to /setup/connections",
+    "Replace Permissions section with summary card → link to /setup/permissions",
+    "Replace Tools + MCP section with summary card → link to /setup/tools",
+    "Remove custom connectors from main page (move to /setup/connections)",
+    "Summary cards: icon + title + status count + 자세히 보기 button",
+    "Use t() for all text, add new translation keys",
+    "Do not modify subpages (created separately)",
+    "Do not modify backend"
+  ],
+  "branch_name": "feat/setup-main-simplify",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}

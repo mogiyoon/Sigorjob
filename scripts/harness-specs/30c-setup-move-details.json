@@ -1,0 +1,35 @@
+{
+  "id": "feat-setup-move-details",
+  "title": "Move detailed setup UI from main page into subpages",
+  "goal": "메인 설정 페이지에서 제거한 상세 UI(개별 연결 카드, 권한 토글, 도구 설치 버튼, MCP 프리셋, 커스텀 커넥터)를 각 하위 페이지에 배치한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": [
+      "frontend/src/app/setup/connections/page.tsx",
+      "frontend/src/app/setup/permissions/page.tsx",
+      "frontend/src/app/setup/tools/page.tsx"
+    ]
+  },
+  "test_requirements": [
+    {"case": "connections page shows Gmail and Calendar cards with Connect buttons", "expected": "individual service cards with OAuth connect/disconnect"},
+    {"case": "connections page shows custom connectors section", "expected": "custom connector form at bottom"},
+    {"case": "permissions page shows all permission toggles", "expected": "grouped toggles: core, service, sensitive, advanced"},
+    {"case": "tools page shows Playwright install section", "expected": "playwright status + install button"},
+    {"case": "tools page shows MCP presets section", "expected": "MCP preset cards with install/uninstall"}
+  ],
+  "constraints": [
+    "Copy the relevant JSX from the original setup/page.tsx into each subpage",
+    "Each subpage must fetch its own data (getSetupStatus, getMcpPresets, etc.)",
+    "Each subpage must have its own state management (useState hooks)",
+    "Reuse existing API functions from lib/api.ts",
+    "Use t() for all text",
+    "Must work in Tauri",
+    "Do not modify main setup page or backend"
+  ],
+  "branch_name": "feat/setup-move-details",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}
