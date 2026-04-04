@@ -71,7 +71,7 @@ function CircleIconButton({
 
 export default function Home() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const [activeTab, setActiveTab] = useState<DashboardTab>("execute");
   const [infoModal, setInfoModal] = useState<"mobile" | "ai" | null>(null);
   const [tasks, setTasks] = useState<TaskResponse[]>([]);
@@ -222,7 +222,7 @@ export default function Home() {
     return {
       taskId: task.task_id,
       connectionId,
-      connectionName: matchedConnection?.title || connectionId || t("settings", "Setup"),
+      connectionName: matchedConnection?.title || connectionId || t("settings"),
       setupMessage,
       fallbackAvailable: Boolean(result.fallback_available),
     };
@@ -332,11 +332,11 @@ export default function Home() {
       });
       console.error(error);
       if (error instanceof UnauthorizedError) {
-        setSubmitError(t("submit_error_auth", "The connection expired. Reconnect and try again."));
+        setSubmitError(t("submit_error_auth"));
       } else if (error instanceof Error) {
-        setSubmitError(`${t("submit_error_generic", "Could not send the request. Please try again.")} (${error.message})`);
+        setSubmitError(translateErrorMessage(error));
       } else {
-        setSubmitError(t("submit_error_generic", "Could not send the request. Please try again."));
+        setSubmitError(t("submit_error_generic"));
       }
       return false;
     } finally {
@@ -492,7 +492,7 @@ export default function Home() {
     .slice(0, 3);
 
   const formatDateTime = (value: string | null) => {
-    if (!value) return t("not_scheduled", "TBD");
+    if (!value) return t("not_scheduled");
     try {
       return new Intl.DateTimeFormat(undefined, {
         month: "short",
@@ -503,6 +503,26 @@ export default function Home() {
     } catch {
       return value;
     }
+  };
+
+  const translateStatus = (status: string) => t(status, status);
+  const translateRiskLevel = (riskLevel: string) => t(`risk_${riskLevel}`, riskLevel);
+  const translateErrorMessage = (error: Error) => {
+    const normalized = error.message.trim().toLowerCase();
+    if (
+      normalized.includes("network") ||
+      normalized.includes("failed to fetch") ||
+      normalized.includes("fetch failed")
+    ) {
+      return t("error_network");
+    }
+    if (normalized.includes("timeout")) {
+      return t("error_timeout");
+    }
+    if (locale === "ko") {
+      return t("error_load_failed");
+    }
+    return `${t("submit_error_generic")} (${error.message})`;
   };
 
   const approvalRiskTone =
@@ -533,7 +553,7 @@ export default function Home() {
     setApprovalActionLoading("reject");
     try {
       await rejectTask(approvalModal.taskId);
-      setSubmitError(t("task_rejected_message", "Approval was rejected. The task was cancelled."));
+      setSubmitError(t("task_rejected_message"));
       setApprovalModal(null);
       approvalDecisionResolverRef.current?.(false);
       approvalDecisionResolverRef.current = null;
@@ -584,35 +604,31 @@ export default function Home() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.22em] text-gray-400">
-                  {t("approval_required", "Approval required")}
+                  {t("approval_required")}
                 </p>
                 <h2 className="mt-2 text-xl font-semibold text-gray-950">
-                  {t("approval_modal_title", "Review before continuing")}
+                  {t("approval_modal_title")}
                 </h2>
               </div>
               <span className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${approvalRiskTone}`}>
-                {approvalModal.riskLevel}
+                {translateRiskLevel(approvalModal.riskLevel)}
               </span>
             </div>
 
             <div className="mt-5 space-y-4">
               <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  {t("command", "Command")}
+                  {t("command")}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-900">{approvalModal.command}</p>
               </div>
 
               <div className="rounded-2xl border border-gray-200 bg-white p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  {t("approval_reason", "Approval reason")}
+                  {t("approval_reason")}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-700">
-                  {approvalModal.reason ||
-                    t(
-                      "approval_reason_fallback",
-                      "This action requires explicit permission before it can continue."
-                    )}
+                  {approvalModal.reason || t("approval_reason_fallback")}
                 </p>
               </div>
             </div>
@@ -624,7 +640,7 @@ export default function Home() {
                 disabled={approvalActionLoading !== null}
                 className="rounded-2xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
               >
-                {approvalActionLoading === "reject" ? t("rejecting", "Rejecting...") : t("reject")}
+                {approvalActionLoading === "reject" ? t("rejecting") : t("reject")}
               </button>
               <button
                 type="button"
@@ -632,7 +648,7 @@ export default function Home() {
                 disabled={approvalActionLoading !== null}
                 className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
               >
-                {approvalActionLoading === "approve" ? t("approving", "Approving...") : t("approve")}
+                {approvalActionLoading === "approve" ? t("approving") : t("approve")}
               </button>
             </div>
           </div>
@@ -644,10 +660,10 @@ export default function Home() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.22em] text-gray-400">
-                  {t("setup_required", "Setup required")}
+                  {t("setup_required")}
                 </p>
                 <h2 className="mt-2 text-xl font-semibold text-gray-950">
-                  {t("setup_modal_title", "Connect a service to continue")}
+                  {t("setup_modal_title")}
                 </h2>
               </div>
               <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800">
@@ -658,14 +674,14 @@ export default function Home() {
             <div className="mt-5 space-y-4">
               <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  {t("connection", "Connection")}
+                  {t("connection")}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-900">{setupPrompt.connectionName}</p>
               </div>
 
               <div className="rounded-2xl border border-gray-200 bg-white p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  {t("setup_reason", "Why this is needed")}
+                  {t("setup_reason")}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-700">{setupPrompt.setupMessage}</p>
               </div>
@@ -680,8 +696,8 @@ export default function Home() {
                   className="rounded-2xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
                 >
                   {setupActionLoading === "fallback"
-                    ? t("running", "Running...")
-                    : t("use_fallback", "Use Fallback")}
+                    ? t("running")
+                    : t("use_fallback")}
                 </button>
               )}
               <button
@@ -690,7 +706,7 @@ export default function Home() {
                 disabled={setupActionLoading !== null}
                 className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
               >
-                {setupActionLoading === "connect" ? t("connecting", "Connecting...") : t("connect")}
+                {setupActionLoading === "connect" ? t("connecting") : t("connect_service")}
               </button>
             </div>
           </div>
@@ -715,7 +731,7 @@ export default function Home() {
               )
         }
         confirmLabel={t("delete")}
-        cancelLabel={t("cancel", "취소")}
+        cancelLabel={t("cancel")}
         tone="danger"
         busy={Boolean(deletingTaskId || bulkDeleting)}
         onCancel={() => setDeleteDialog(null)}
@@ -736,12 +752,12 @@ export default function Home() {
             <div className="flex min-w-0 items-center gap-4">
               <img
                 src="/sigorjob.png"
-                alt="Sigorjob logo"
+                alt={t("app_logo")}
                 className="h-20 w-20 shrink-0 rounded-[1.75rem] border border-gray-200 bg-white object-contain p-2 shadow-sm"
               />
               <div className="min-w-0">
                 <h1 className="truncate text-3xl font-semibold tracking-tight text-gray-950">Sigorjob</h1>
-                <p className="truncate text-sm text-gray-500">Automation for everyone. AI only when needed.</p>
+                <p className="truncate text-sm text-gray-500">{t("app_tagline")}</p>
               </div>
             </div>
 
@@ -773,7 +789,7 @@ export default function Home() {
               onClick={() => setInfoModal("mobile")}
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${mobileStatusTone}`}
             >
-              <span>{t("mobile_connection", "Mobile Connect")}: {mobileStatusLabel}</span>
+              <span>{t("mobile_connection")}: {mobileStatusLabel}</span>
               <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">!</span>
             </button>
             <button
@@ -781,7 +797,7 @@ export default function Home() {
               onClick={() => setInfoModal("ai")}
               className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${aiStatusTone}`}
             >
-              <span>AI: {aiStatusLabel}</span>
+              <span>{t("ai_label")}: {aiStatusLabel}</span>
               <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px]">!</span>
             </button>
           </div>
@@ -797,7 +813,7 @@ export default function Home() {
         {backendStartupError && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-semibold text-amber-950">
-              {t("backend_startup_failed_title", "백엔드 시작에 실패했습니다")}
+              {t("backend_startup_failed_title")}
             </p>
             <p className="mt-1 text-sm leading-6 text-amber-900">
               {t(
@@ -810,7 +826,7 @@ export default function Home() {
             </p>
             {backendStartupLogPath && (
               <p className="mt-2 break-all text-xs text-amber-800">
-                {t("backend_startup_log_path", "로그 파일")}: {backendStartupLogPath}
+                {t("backend_startup_log_path")}: {backendStartupLogPath}
               </p>
             )}
           </div>
@@ -889,10 +905,10 @@ export default function Home() {
                   <div className="mt-5 space-y-3 border-t border-gray-100 pt-4">
                     <div>
                       <h3 className="text-sm font-semibold text-gray-950">
-                        {t("latest_completed_title", "방금 끝난 작업")}
+                        {t("latest_completed_title")}
                       </h3>
                       <p className="mt-1 text-xs text-gray-500">
-                        {t("latest_completed_desc", "실행 직후 작업이 사라져 보이지 않도록 최근 완료 작업을 잠깐 여기에도 남깁니다.")}
+                        {t("latest_completed_desc")}
                       </p>
                     </div>
                     {recentCompletedTasks.map((task) => (
@@ -947,7 +963,7 @@ export default function Home() {
                             </p>
                           </div>
                           <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-medium text-gray-600">
-                            {task.status}
+                            {translateStatus(task.status)}
                           </span>
                         </div>
                       </div>
@@ -983,7 +999,7 @@ export default function Home() {
                             <p className="mt-1 text-xs font-mono text-emerald-700">{schedule.cron}</p>
                           </div>
                           <span className="rounded-full bg-white/80 px-2 py-1 text-[11px] font-medium text-emerald-700">
-                            {schedule.status}
+                            {translateStatus(schedule.status)}
                           </span>
                         </div>
                         <p className="mt-3 text-xs text-emerald-800">
@@ -1012,7 +1028,7 @@ export default function Home() {
                             {recentRuns.map((task) => (
                               <div key={`history-task-${task.task_id}`} className="flex items-center justify-between gap-3 text-xs">
                                 <span className="truncate text-gray-600">{task.result?.summary || task.command}</span>
-                                <span className="rounded-full bg-gray-50 px-2 py-1 text-gray-500">{task.status}</span>
+                                <span className="rounded-full bg-gray-50 px-2 py-1 text-gray-500">{translateStatus(task.status)}</span>
                               </div>
                             ))}
                           </div>
@@ -1141,7 +1157,7 @@ export default function Home() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-base font-semibold text-gray-950">
-                    {infoModal === "mobile" ? t("mobile_connection") : "AI"}
+                    {infoModal === "mobile" ? t("mobile_connection") : t("ai_label")}
                   </h2>
                   <p className="mt-1 text-sm text-gray-600">
                     {infoModal === "mobile"
