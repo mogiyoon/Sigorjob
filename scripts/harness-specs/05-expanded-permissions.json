@@ -1,0 +1,30 @@
+{
+  "id": "feat-expanded-permissions",
+  "title": "Expand shell whitelist and file access for AI agent capabilities",
+  "goal": "Shell 화이트리스트를 확장하고(pip, npm, node, python3, git, curl, wget, cat, grep, find, mkdir, cp, mv, touch, head, tail, wc, sort, uniq, diff), 파일 접근 범위를 사용자 홈 디렉토리와 프로젝트 루트까지 확장한다. 위험한 패턴 차단(rm -rf, sudo, curl|sh 등)은 유지한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_expanded_permissions.py"],
+    "modified_files": ["backend/config/settings.py", "backend/policy/engine.py", "backend/intent/risk_evaluator.py"]
+  },
+  "test_requirements": [
+    {"case": "Newly allowed commands pass policy check", "expected": "check_shell allows pip, git, curl, python3, mkdir, cp, mv, etc."},
+    {"case": "Dangerous patterns still blocked", "expected": "rm -rf, sudo, curl|sh, wget|sh still blocked"},
+    {"case": "Home directory access allowed", "expected": "check_file allows paths under user home"},
+    {"case": "Project root access allowed", "expected": "check_file allows paths under project root"},
+    {"case": "System directories still blocked", "expected": "/etc/passwd, /usr/bin still blocked for write"},
+    {"case": "Risk evaluator assigns correct levels", "expected": "curl = medium, git = low, pip install = medium"}
+  ],
+  "constraints": [
+    "Do not remove any existing blocked command from the blocklist",
+    "Do not weaken the dangerous pattern detection (rm -rf, |bash, |sh, sudo)",
+    "Keep protected internal files blocked (db, config.json, pair_token)",
+    "Existing tests must continue to pass",
+    "Do not modify orchestrator or intent router"
+  ],
+  "branch_name": "feat/expanded-permissions",
+  "base_branch": "main",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_expanded_permissions -v"
+}

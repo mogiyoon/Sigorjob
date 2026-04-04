@@ -352,7 +352,7 @@ fn launch_backend_sidecar(app: &tauri::App) -> Result<(), String> {
     *guard = Some(child);
     drop(guard);
 
-    if let Err(error) = wait_for_backend_ready(port, Duration::from_secs(15), &startup_logs, &startup_log_path) {
+    if let Err(error) = wait_for_backend_ready(port, Duration::from_secs(30), &startup_logs, &startup_log_path) {
         if let Ok(mut guard) = app.state::<BackendStartupErrorState>().0.lock() {
             *guard = error.clone();
         }

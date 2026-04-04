@@ -1,0 +1,40 @@
+{
+  "id": "feat-browser-auto",
+  "title": "Add Playwright-based browser automation tool",
+  "goal": "Playwright 기반의 실제 브라우저 자동화 도구를 추가한다. headless Chrome으로 페이지 이동, 텍스트 추출, 클릭, 입력, 스크린샷 등의 action을 수행할 수 있다.",
+  "implementation_locations": {
+    "new_files": [
+      "backend/tools/browser_auto/__init__.py",
+      "backend/tools/browser_auto/tool.py",
+      "backend/tests/test_browser_auto.py"
+    ],
+    "modified_files": [
+      "backend/tools/registry.py"
+    ]
+  },
+  "test_requirements": [
+    {"case": "navigate action with valid URL", "expected": "returns {success: true, data: {url, title, status}}"},
+    {"case": "extract_text action", "expected": "returns {success: true, data: {text: ...}} with page text content"},
+    {"case": "click action with selector", "expected": "returns {success: true} after clicking element"},
+    {"case": "type action with selector and text", "expected": "returns {success: true} after typing text"},
+    {"case": "screenshot action", "expected": "returns {success: true, data: {path: screenshot_path}}"},
+    {"case": "navigate with invalid URL", "expected": "returns {success: false, error: ...} gracefully"},
+    {"case": "Tool registered in registry", "expected": "registry.get('browser_auto') returns the tool"}
+  ],
+  "constraints": [
+    "Use playwright async API (from playwright.async_api import async_playwright)",
+    "Default to headless=True, but allow headless=False via params",
+    "Each run() call should create and close a fresh browser context (no session leaking)",
+    "Timeout per action: 30 seconds max",
+    "Do not modify existing browser or crawler tools",
+    "Screenshots saved to /tmp with unique filename",
+    "Return text content truncated to 10000 chars max",
+    "If playwright is not installed, return {success: false, error: 'playwright not installed'}"
+  ],
+  "branch_name": "feat/browser-auto",
+  "base_branch": "main",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_browser_auto -v"
+}

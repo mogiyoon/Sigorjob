@@ -4,10 +4,10 @@ from logger.logger import get_logger
 logger = get_logger(__name__)
 
 
-async def summarize(command: str, results: list[dict]) -> str:
+async def summarize(command: str, results: list[dict], *, allow_ai: bool = True) -> str:
     """실행 결과를 자연어로 요약."""
     client = get_client()
-    if not has_api_key() or client is None:
+    if not allow_ai or not has_api_key() or client is None:
         return _fallback_summary(results)
 
     results_text = "\n".join(
@@ -51,6 +51,13 @@ def _fallback_summary(results: list[dict]) -> str:
             if isinstance(data, dict) and data.get("action") == "open_url":
                 title = str(data.get("title") or "")
                 url = str(data.get("url") or "")
+                calendar = data.get("calendar") or {}
+                if isinstance(calendar, dict) and calendar.get("summary"):
+                    event_title = str(calendar.get("title") or "일정")
+                    return (
+                        f"{calendar['summary']} Google 캘린더에 추가하는 링크가 생성되었습니다. "
+                        f"아래 링크를 클릭하여 일정을 최종 저장해 주세요! 🌸"
+                    )
                 if data.get("translation"):
                     return "번역 페이지를 바로 열 수 있게 준비했습니다."
                 if data.get("shopping") and data.get("purchase_intent"):

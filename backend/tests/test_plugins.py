@@ -36,10 +36,14 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
         self._orig_config_delete = config_store.delete
         self._orig_config_all = config_store.all
         self._orig_ai_plan = intent_router.ai_agent.plan
+        self._orig_router_record_task_trace = intent_router.record_task_trace
         config_store.get = lambda key, default=None: self.config_data.get(key, default)
         config_store.set = lambda key, value: self.config_data.__setitem__(key, value)
         config_store.delete = lambda key: self.config_data.pop(key, None)
         config_store.all = lambda: dict(self.config_data)
+        async def noop_record_task_trace(*args, **kwargs):
+            return None
+        intent_router.record_task_trace = noop_record_task_trace
         load_default_tools()
         load_plugins()
         config_store.set("custom_commands", [])
@@ -50,6 +54,7 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
         config_store.delete = self._orig_config_delete
         config_store.all = self._orig_config_all
         intent_router.ai_agent.plan = self._orig_ai_plan
+        intent_router.record_task_trace = self._orig_router_record_task_trace
 
     async def test_reservation_plugin_route(self):
         task = await intent_router.route("성수 맛집 예약해줘")
@@ -67,6 +72,37 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_calendar_plugin_route(self):
         task = await intent_router.route("내일 오후 3시 팀 회의 캘린더에 일정 추가해줘")
         self.assertEqual(task.steps[0].tool, "calendar_helper")
+        self.assertFalse(task.used_ai)
+
+    async def test_calendar_rule_route_skips_ai_clarification(self):
+        original_has_api_key = intent_router.has_api_key
+        original_request_clarification = intent_router.ai_agent.request_clarification
+        intent_router.has_api_key = lambda: True
+
+        async def fail_if_called(command: str, history: list[dict]):
+            raise AssertionError("AI clarification should not run for a direct calendar rule match")
+
+        intent_router.ai_agent.request_clarification = fail_if_called
+        try:
+            task = await intent_router.route("4월 11일 16시에 벚꽃 일정 추가해줘")
+        finally:
+            intent_router.has_api_key = original_has_api_key
+            intent_router.ai_agent.request_clarification = original_request_clarification
+
+        self.assertEqual(task.steps[0].tool, "calendar_helper")
+        self.assertFalse(task.used_ai)
+
+    async def test_calendar_helper_preserves_explicit_month_day_in_google_link(self):
+        tool = get("calendar_helper")
+        result = await tool.run({"text": "4월 11일 16시에 벚꽃 일정 추가"})
+        self.assertTrue(result["success"])
+        calendar = result["data"]["calendar"]
+        self.assertEqual(calendar["title"], "벚꽃")
+        self.assertIn("20260411T070000Z/20260411T080000Z", calendar["dates"])
+        self.assertEqual(
+            calendar["summary"],
+            "4월 11일 16시에 **벚꽃** 일정을",
+        )
 
     async def test_weather_alert_plugin_route(self):
         task = await intent_router.route("아침 8시에 기상청에서 스크롤한 거 바탕으로 날씨 알림 보내줘")

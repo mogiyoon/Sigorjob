@@ -434,6 +434,18 @@ export async function disconnectTunnel(): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
+export async function restartQuickTunnel(): Promise<{
+  success: boolean;
+  tunnel_url?: string | null;
+  error?: string | null;
+}> {
+  const res = await localApiFetch("/setup/quick", {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function sendTestMobileNotification(input?: {
   title?: string;
   body?: string;

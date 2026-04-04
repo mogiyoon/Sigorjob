@@ -1,4 +1,4 @@
-# CLAUDE.md
+. # CLAUDE.md
 
 ## Project identity
 이 프로젝트는 개인용 AI 비서 앱이 아니라, 로컬 PC를 실행 허브로 사용하는 자동화 플랫폼입니다.
@@ -128,3 +128,24 @@ AI 없이 우선 처리하고 계속 넓혀가야 하는 대상은 다음과 같
 - 반복 가능하고 안정적인 작업은 자동화 엔진 중심으로 설계합니다.
 - 하지만 사용자가 보는 최종 경험은 "AI가 결국 다 처리할 수 있다"에 가까워야 합니다.
 - 비용, 속도, 안정성, 통제 가능성을 항상 함께 고려합니다.
+
+## Dev process (개발 워크플로우)
+
+이 Claude Code 인스턴스는 **기획 전담**입니다.
+
+역할 분리:
+- **이 Claude Code (기획)**: 요청 분석 → 설계 → Codex에 전달할 스펙 작성
+- **Codex (구현)**: `AGENTS.md` 기준으로 코드 작성 + 테스트 작성
+- **리뷰 Claude Code (검토)**: PR 코드 리뷰, `docs/en/dev-workflow.md#review` 기준 적용
+
+기획 스펙 작성 시 아래 형식을 따릅니다:
+1. 목표: 무엇을 왜 만드는지 한 줄 요약
+2. 비AI 경로: 규칙/플러그인으로 처리 가능한 부분
+3. AI 경로: 비AI가 놓쳤을 때 AI가 이어받는 경로
+4. 구현 위치: 어떤 파일/모듈에 구현할지
+5. 테스트 요구사항: 어떤 케이스를 검증해야 하는지
+6. 금지사항: 이 작업에서 건드리면 안 되는 것
+
+자세한 워크플로우 → [docs/en/dev-workflow.md](docs/en/dev-workflow.md)
+Codex 구현 가이드 → [AGENTS.md](AGENTS.md)
+자동화 로드맵 → [docs/en/automation-roadmap.md](docs/en/automation-roadmap.md)

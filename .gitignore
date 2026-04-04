@@ -36,3 +36,4 @@ src-tauri/gen/schemas/
 src-tauri/target/
 backend/__pycache__/
 backend/**/*.pyc
+scripts/harness-results/

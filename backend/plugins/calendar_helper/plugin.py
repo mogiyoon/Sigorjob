@@ -79,13 +79,20 @@ def _parse_calendar_request(text: str) -> dict:
       "title": title,
       "details": details,
       "dates": f"{_format_google_datetime(start)}/{_format_google_datetime(end)}",
+      "summary": _build_calendar_summary(start, title),
     }
 
 
 def _extract_time_range(text: str) -> tuple[datetime, datetime]:
     now = datetime.now(KST)
     base_date = now.date()
-    if "내일" in text:
+    explicit_date = re.search(r"(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일", text)
+    if explicit_date:
+        year = int(explicit_date.group(1) or now.year)
+        month = int(explicit_date.group(2))
+        day = int(explicit_date.group(3))
+        base_date = datetime(year=year, month=month, day=day, tzinfo=KST).date()
+    elif "내일" in text:
         base_date = (now + timedelta(days=1)).date()
     elif "모레" in text:
         base_date = (now + timedelta(days=2)).date()
@@ -116,9 +123,19 @@ def _extract_time_range(text: str) -> tuple[datetime, datetime]:
 
 def _extract_title(text: str) -> str:
     title = re.sub(r"(오늘|내일|모레)", "", text)
-    title = re.sub(r"(오전|오후)?\s*\d{1,2}시(?:\s*\d{1,2}분)?", "", title)
+    title = re.sub(r"(?:(\d{4})년\s*)?\d{1,2}월\s*\d{1,2}일", "", title)
+    title = re.sub(r"(오전|오후)?\s*\d{1,2}시(?:\s*\d{1,2}분)?(?:에)?", "", title)
+    title = re.sub(r"\s*일정\s*(추가|넣기?)\s*$", "", title)
+    title = re.sub(r"^\s*에\s*", "", title)
     title = re.sub(r"\s+", " ", title).strip(" -")
     return title or "새 일정"
+
+
+def _build_calendar_summary(start: datetime, title: str) -> str:
+    time_text = f"{start.month}월 {start.day}일 {start.hour}시에 **{title}** 일정을"
+    if start.minute:
+        time_text = f"{start.month}월 {start.day}일 {start.hour}시 {start.minute}분에 **{title}** 일정을"
+    return time_text
 
 
 def _format_google_datetime(value: datetime) -> str:

@@ -192,6 +192,15 @@ class IntentNormalizerTests(unittest.TestCase):
 
 
 class IntentRouterFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self._orig_router_record_task_trace = intent_router.record_task_trace
+        async def noop_record_task_trace(*args, **kwargs):
+            return None
+        intent_router.record_task_trace = noop_record_task_trace
+
+    async def asyncTearDown(self):
+        intent_router.record_task_trace = self._orig_router_record_task_trace
+
     async def test_route_shopping_request_creates_browser_step(self):
         task = await intent_router.route("네이버에서 드럼 스틱 사줘")
         self.assertEqual(len(task.steps), 1)

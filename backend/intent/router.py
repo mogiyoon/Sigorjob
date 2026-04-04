@@ -59,6 +59,52 @@ async def route(command: str, context: dict | None = None) -> Task:
         },
     )
 
+    custom_command = match_custom_command(normalized_command)
+    if custom_command:
+        logger.info(f"[{task.id}] custom command matched: {custom_command['id']}")
+        await record_task_trace(
+            task.id,
+            stage="router",
+            event="custom_command_matched",
+            detail={"custom_command_id": custom_command["id"], "match_type": custom_command["match_type"]},
+        )
+        normalized_command = normalize_command(str(custom_command["action_text"]))
+        task.intent = str(custom_command["action_text"])
+        task.result_data = {
+            "custom_command": {
+                "id": custom_command["id"],
+                "trigger": custom_command["trigger"],
+                "match_type": custom_command["match_type"],
+                "action_text": custom_command["action_text"],
+            }
+        }
+
+    # 1. 먼저 비AI 경로를 끝까지 시도
+    step = _match_rules(normalized_command)
+    if step is None:
+        normalized_intent = detect_intent(normalized_command)
+        if normalized_intent:
+            step = Step(
+                tool=_intent_tool(normalized_intent.category),
+                params=normalized_intent.params,
+                description=normalized_intent.description,
+            )
+    if step:
+        _hydrate_step_params(step, normalized_command)
+        logger.info(f"[{task.id}] rule matched: {step.tool}")
+        task.intent = normalized_command
+        task.steps = [step]
+        _annotate_risk(task)
+        await record_task_trace(
+            task.id,
+            stage="router",
+            event="rule_matched",
+            status=task.status,
+            detail={"tool": step.tool, "risk_level": task.risk_level},
+        )
+        return task
+
+    # 2. 비AI 경로가 실패한 뒤에만 AI가 개입
     if has_api_key():
         await record_task_trace(
             task.id,
@@ -73,6 +119,7 @@ async def route(command: str, context: dict | None = None) -> Task:
         if clarification_review and clarification_review.get("needs_clarification"):
             question = str(clarification_review.get("question") or "").strip()
             if question:
+                task.used_ai = True
                 if len(clarification["history"]) >= 3:
                     task.status = "failed"
                     task.summary = "질문을 세 번 주고받았지만 아직 요청을 명확히 이해하지 못했습니다."
@@ -115,52 +162,6 @@ async def route(command: str, context: dict | None = None) -> Task:
                 )
                 return task
 
-    custom_command = match_custom_command(normalized_command)
-    if custom_command:
-        logger.info(f"[{task.id}] custom command matched: {custom_command['id']}")
-        await record_task_trace(
-            task.id,
-            stage="router",
-            event="custom_command_matched",
-            detail={"custom_command_id": custom_command["id"], "match_type": custom_command["match_type"]},
-        )
-        normalized_command = normalize_command(str(custom_command["action_text"]))
-        task.intent = str(custom_command["action_text"])
-        task.result_data = {
-            "custom_command": {
-                "id": custom_command["id"],
-                "trigger": custom_command["trigger"],
-                "match_type": custom_command["match_type"],
-                "action_text": custom_command["action_text"],
-            }
-        }
-
-    # 1. 규칙 매칭 시도
-    step = _match_rules(normalized_command)
-    if step is None:
-        normalized_intent = detect_intent(normalized_command)
-        if normalized_intent:
-            step = Step(
-                tool=_intent_tool(normalized_intent.category),
-                params=normalized_intent.params,
-                description=normalized_intent.description,
-            )
-    if step:
-        _hydrate_step_params(step, normalized_command)
-        logger.info(f"[{task.id}] rule matched: {step.tool}")
-        task.intent = normalized_command
-        task.steps = [step]
-        _annotate_risk(task)
-        await record_task_trace(
-            task.id,
-            stage="router",
-            event="rule_matched",
-            status=task.status,
-            detail={"tool": step.tool, "risk_level": task.risk_level},
-        )
-        return task
-
-    # 2. 비AI가 놓친 요청은 AI가 메인 에이전트처럼 이어받음
     logger.info(f"[{task.id}] no rule matched, calling AI")
     await record_task_trace(
         task.id,
@@ -168,6 +169,7 @@ async def route(command: str, context: dict | None = None) -> Task:
         event="ai_plan_requested",
         detail={"reason": "no_rule_match"},
     )
+    task.used_ai = True
     plan = await ai_agent.plan(normalized_command)
     task.intent = plan.get("intent", normalized_command)
     task.steps = [
@@ -214,6 +216,7 @@ async def route(command: str, context: dict | None = None) -> Task:
         if not task.steps and allows_browser_fallback(normalized_command):
             ai_browser_hint = await ai_agent.browser_assist(normalized_command)
             if ai_browser_hint:
+                task.used_ai = True
                 assisted_intent = build_ai_assisted_browser_intent(ai_browser_hint, normalized_command)
                 if assisted_intent:
                     fallback_step = Step(

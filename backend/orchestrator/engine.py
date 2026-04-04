@@ -260,6 +260,39 @@ async def _execute_steps(task: Task, session=None) -> None:
                     continue
 
         if quality.blocking:
+            continuation = await ai_agent.continue_task(
+                task.command,
+                {
+                    "summary": task.summary,
+                    "results": task.results,
+                    **task.result_data,
+                },
+            )
+            continuation_steps = [
+                Step(
+                    tool=item["tool"],
+                    params=item["params"],
+                    description=item.get("description", ""),
+                )
+                for item in (continuation or {}).get("steps", [])
+                if item.get("tool") and isinstance(item.get("params"), dict)
+            ]
+            if continuation_steps:
+                task.used_ai = True
+                task.intent = str((continuation or {}).get("intent") or task.intent or task.command)
+                task.steps.extend(continuation_steps)
+                await record_task_trace(
+                    task.id,
+                    stage="orchestrator",
+                    event="ai_continuation_planned",
+                    status=task.status,
+                    detail={"after_step_index": i + 1, "step_count": len(continuation_steps)},
+                    session=session,
+                )
+                if session is not None:
+                    await _log(task.id, "info", f"step {i+1} AI continuation planned {len(continuation_steps)} step(s)", session)
+                step_index += 1
+                continue
             if session is not None:
                 await _log(task.id, "warning", f"step {i+1} quality insufficient: {quality.message}", session)
             task.status = "failed"
