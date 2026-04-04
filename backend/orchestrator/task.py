@@ -11,6 +11,8 @@ class Step:
     description: str = ""
     risk_level: str = "low"
     result: dict | None = None
+    condition: bool | str | None = None
+    param_template: bool = False
 
 
 @dataclass
@@ -26,5 +28,6 @@ class Task:
     summary: str = ""
     error: str = ""
     result_data: dict[str, Any] = field(default_factory=dict)
+    used_ai: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
