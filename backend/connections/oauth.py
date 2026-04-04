@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -14,6 +15,9 @@ from config.store import config_store
 
 _TOKEN_KEY_PREFIX = "google_oauth_tokens:"
 _DEFAULT_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_DEFAULT_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+_STATE_TTL_SECONDS = 600
+_oauth_states: dict[str, dict[str, Any]] = {}
 
 
 def _token_key(connection_id: str) -> str:
@@ -25,6 +29,21 @@ def _google_oauth_config() -> tuple[str, str, str]:
     client_secret = str(config_store.get("google_oauth_client_secret", "") or "").strip()
     redirect_uri = str(config_store.get("google_oauth_redirect_uri", "") or "").strip()
     return client_id, client_secret, redirect_uri
+
+
+def _now() -> int:
+    return int(time.time())
+
+
+def _prune_expired_states(now: int | None = None) -> None:
+    current_time = _now() if now is None else now
+    expired = [
+        state
+        for state, payload in _oauth_states.items()
+        if int(payload.get("expires_at", 0)) <= current_time
+    ]
+    for state in expired:
+        _oauth_states.pop(state, None)
 
 
 def _normalize_token_payload(payload: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -57,8 +76,68 @@ def _save_tokens(connection_id: str, tokens: dict[str, Any]) -> tuple[bool, str 
     return secret_store.set(_token_key(connection_id), json.dumps(tokens))
 
 
+def delete_stored_tokens(connection_id: str) -> tuple[bool, str | None]:
+    return secret_store.delete(_token_key(connection_id))
+
+
 def get_stored_tokens(connection_id: str) -> dict[str, Any] | None:
     return _load_tokens(connection_id)
+
+
+def create_authorization_state(connection_id: str) -> str:
+    _prune_expired_states()
+    state = secrets.token_urlsafe(32)
+    now = _now()
+    _oauth_states[state] = {
+        "connection_id": connection_id,
+        "created_at": now,
+        "expires_at": now + _STATE_TTL_SECONDS,
+    }
+    return state
+
+
+def consume_authorization_state(connection_id: str, state: str) -> bool:
+    _prune_expired_states()
+    payload = _oauth_states.get(state)
+    if not payload:
+        return False
+    if payload.get("connection_id") != connection_id:
+        return False
+    if int(payload.get("expires_at", 0)) <= _now():
+        _oauth_states.pop(state, None)
+        return False
+    _oauth_states.pop(state, None)
+    return True
+
+
+def build_google_authorize_url(connection_id: str, scopes: list[str]) -> dict[str, Any]:
+    client_id, _client_secret, redirect_uri = _google_oauth_config()
+    if not client_id or not redirect_uri:
+        return {"success": False, "data": None, "error": "google oauth config is incomplete"}
+    if not scopes:
+        return {"success": False, "data": None, "error": "oauth scopes are not configured"}
+
+    state = create_authorization_state(connection_id)
+    query = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": " ".join(scopes),
+            "state": state,
+            "access_type": "offline",
+            "include_granted_scopes": "true",
+            "prompt": "consent",
+        }
+    )
+    return {
+        "success": True,
+        "data": {
+            "auth_url": f"{_DEFAULT_AUTHORIZE_URL}?{query}",
+            "state": state,
+        },
+        "error": None,
+    }
 
 
 async def store_tokens(connection_id: str, tokens: dict[str, Any]) -> tuple[bool, str | None]:

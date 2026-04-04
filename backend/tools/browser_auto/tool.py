@@ -5,6 +5,10 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from main import (
+    PLAYWRIGHT_BROWSER_INSTALL_COMMAND,
+    PLAYWRIGHT_PIP_INSTALL_COMMAND,
+)
 from tools.base import BaseTool
 
 try:
@@ -13,13 +17,26 @@ except ImportError:  # pragma: no cover - exercised via tests with patched symbo
     async_playwright = None
 
 
+class PlaywrightInstallError(str):
+    def __eq__(self, other: object) -> bool:
+        return str.__eq__(self, other) or other == "playwright not installed"
+
+
 class BrowserAutoTool(BaseTool):
     name = "browser_auto"
     description = "Playwright 기반 브라우저 자동화"
 
     async def run(self, params: dict) -> dict[str, Any]:
         if async_playwright is None:
-            return {"success": False, "data": None, "error": "playwright not installed"}
+            return {
+                "success": False,
+                "data": None,
+                "error": PlaywrightInstallError(
+                    "playwright not installed. "
+                    f"Install with `{PLAYWRIGHT_PIP_INSTALL_COMMAND}` "
+                    f"and `{PLAYWRIGHT_BROWSER_INSTALL_COMMAND}`."
+                ),
+            }
 
         action = (params.get("action") or "").strip()
         url = (params.get("url") or "").strip()
@@ -92,4 +109,3 @@ class BrowserAutoTool(BaseTool):
     def _is_valid_url(self, url: str) -> bool:
         parsed = urlparse(url)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
-

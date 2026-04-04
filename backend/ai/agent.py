@@ -1,5 +1,6 @@
 import json
 from ai.runtime import get_client, has_api_key
+from connections.registry import list_mcp_servers
 from plugins import get_ai_instructions
 from logger.logger import get_logger
 from tools.registry import list_tools
@@ -170,10 +171,13 @@ async def plan(command: str) -> dict:
     try:
         plugin_instructions = get_ai_instructions()
         tools_prompt = _build_tools_prompt()
+        mcp_prompt = _build_mcp_prompt()
         system_prompt = f"{SYSTEM_PROMPT}\n\nAvailable tools:\n{tools_prompt}"
         if plugin_instructions:
             system_prompt = f"{SYSTEM_PROMPT}\n\nPlugin-specific guidance:\n{plugin_instructions}"
             system_prompt = f"{system_prompt}\n\nAvailable tools:\n{tools_prompt}"
+        if mcp_prompt:
+            system_prompt = f"{system_prompt}\n\n{mcp_prompt}"
         message = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
@@ -281,7 +285,10 @@ async def continue_task(command: str, current_result: dict) -> dict | None:
         return None
     try:
         tools_prompt = _build_tools_prompt()
+        mcp_prompt = _build_mcp_prompt()
         system_prompt = f"{TASK_CONTINUATION_PROMPT}\n\nAvailable tools:\n{tools_prompt}"
+        if mcp_prompt:
+            system_prompt = f"{system_prompt}\n\n{mcp_prompt}"
         payload = {
             "command": command,
             "current_result": current_result,
@@ -347,3 +354,22 @@ def _build_tools_prompt() -> str:
     if not tools:
         return "- browser: prepare a web URL for opening in the client UI"
     return "\n".join(f"- {tool['name']}: {tool['description']}" for tool in tools)
+
+
+def _build_mcp_prompt() -> str:
+    servers = list_mcp_servers()
+    if not servers:
+        return ""
+
+    server_names = ", ".join(sorted(str(server.get("name") or "").strip() for server in servers if server.get("name")))
+    if not server_names:
+        return ""
+
+    return (
+        "MCP tool guidance:\n"
+        "- The `mcp` tool can call tools exposed by configured MCP servers.\n"
+        f"- Available MCP servers: {server_names}.\n"
+        "- When the user asks for calendar or email work and an MCP server fits, you may use the `mcp` tool with "
+        '`server`, `tool`, and optional `arguments`.\n'
+        "- Do not invent server names. Use only the configured servers listed above."
+    )
