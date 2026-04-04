@@ -201,6 +201,12 @@ export interface SetupStatusResponse {
   ai_validation_error: string | null;
   ai_verified_at: string | null;
   ai_storage_backend: "keychain" | "config";
+  playwright: {
+    installed: boolean;
+    browsers_installed: boolean;
+    install_command: string;
+    browser_install_command: string;
+  };
   connections: ConnectionItem[];
   permissions: PermissionItem[];
 }
@@ -383,6 +389,14 @@ export async function deleteCustomCommand(ruleId: string): Promise<void> {
 
 export async function getSetupStatus(): Promise<SetupStatusResponse> {
   const res = await localApiFetch("/setup/status");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function installPlaywright(): Promise<{ success: boolean; error?: string }> {
+  const res = await localApiFetch("/setup/playwright/install", {
+    method: "POST",
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

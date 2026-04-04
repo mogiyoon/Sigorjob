@@ -13,6 +13,7 @@ import {
   disconnectTunnel,
   getMcpPresets,
   getSetupStatus,
+  installPlaywright,
   installMcpPreset,
   localApiFetch,
   sendTestMobileNotification,
@@ -40,6 +41,12 @@ type SetupStatus = {
   ai_validation_error: string | null;
   ai_verified_at: string | null;
   ai_storage_backend: "keychain" | "config";
+  playwright: {
+    installed: boolean;
+    browsers_installed: boolean;
+    install_command: string;
+    browser_install_command: string;
+  };
   connections: ConnectionItem[];
   permissions: PermissionItem[];
 };
@@ -76,6 +83,8 @@ export default function SetupPage() {
     presetId: string;
     type: "install" | "uninstall";
   } | null>(null);
+  const [playwrightInstalling, setPlaywrightInstalling] = useState(false);
+  const [playwrightMessage, setPlaywrightMessage] = useState("");
 
   const getConnectionBadgeClass = (connection: ConnectionItem) => {
     if (connection.verified) return "bg-green-100 text-green-700";
@@ -500,6 +509,30 @@ export default function SetupPage() {
       setMcpPresetAction((current) =>
         current?.presetId === presetId && current.type === "uninstall" ? null : current
       );
+    }
+  };
+
+  const handleInstallPlaywright = async () => {
+    setPlaywrightInstalling(true);
+    setPlaywrightMessage("");
+    try {
+      const data = await installPlaywright();
+      if (!data.success) {
+        setPlaywrightMessage(
+          data.error || t("playwright_install_failed", "Could not install Playwright.")
+        );
+        return;
+      }
+      setPlaywrightMessage(
+        t("playwright_install_success", "Playwright installation finished.")
+      );
+      await refreshStatus();
+    } catch {
+      setPlaywrightMessage(
+        t("playwright_install_failed", "Could not install Playwright.")
+      );
+    } finally {
+      setPlaywrightInstalling(false);
     }
   };
 
@@ -1155,6 +1188,64 @@ export default function SetupPage() {
     </div>
   );
 
+  const toolsCard = (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
+      <div className="space-y-1">
+        <h2 className="font-semibold text-gray-900">{t("tools_title", "Tools")}</h2>
+        <p className="text-sm text-gray-600">
+          {t("tools_desc", "Install local tools required for browser automation and similar tasks.")}
+        </p>
+      </div>
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-gray-900">Playwright</p>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  status?.playwright.installed
+                    ? "bg-green-100 text-green-700"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {status?.playwright.installed
+                  ? t("installed_short", "Installed")
+                  : t("not_installed_short", "Not installed")}
+              </span>
+            </div>
+            <p className="text-xs leading-5 text-gray-600">
+              {t(
+                "playwright_desc",
+                "Required for browser automation tasks that open and control Chromium."
+              )}
+            </p>
+          </div>
+          {!status?.playwright.installed && (
+            <button
+              type="button"
+              onClick={handleInstallPlaywright}
+              disabled={playwrightInstalling}
+              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {playwrightInstalling
+                ? t("installing_short", "Installing...")
+                : t("install", "Install")}
+            </button>
+          )}
+        </div>
+        {!status?.playwright.installed && (
+          <p className="text-xs text-amber-700 leading-5">
+            {t(
+              "playwright_install_notice",
+              "Installing Playwright may take a few minutes because Chromium also needs to be downloaded."
+            )}
+          </p>
+        )}
+        {playwrightMessage && <p className="text-sm text-gray-600">{playwrightMessage}</p>}
+      </div>
+    </div>
+  );
+
   const mobileOperationsCard = (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3 shadow-sm">
       <div className="space-y-1">
@@ -1329,6 +1420,7 @@ export default function SetupPage() {
 
               <div className="space-y-6">
                 {aiSettingsCard}
+                {toolsCard}
                 {externalConnectionsCard}
                 {mcpPresetsCard}
                 {permissionsCard}
@@ -1421,6 +1513,7 @@ export default function SetupPage() {
               </div>
               <div className="space-y-6">
                 {aiSettingsCard}
+                {toolsCard}
                 {externalConnectionsCard}
                 {mcpPresetsCard}
                 {permissionsCard}
