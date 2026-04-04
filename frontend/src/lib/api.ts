@@ -406,6 +406,41 @@ export async function updateConnection(
   return res.json();
 }
 
+export async function authorizeConnection(
+  connectionId: string
+): Promise<{ auth_url: string }> {
+  const res = await localApiFetch(`/setup/connections/${connectionId}/authorize`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function callbackConnection(
+  connectionId: string,
+  input: {
+    code: string;
+    state: string;
+  }
+): Promise<{ success: boolean; connection?: ConnectionItem; error?: string }> {
+  const res = await localApiFetch(`/setup/connections/${connectionId}/callback`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function disconnectConnection(
+  connectionId: string
+): Promise<{ success: boolean; connection?: ConnectionItem; error?: string }> {
+  const res = await localApiFetch(`/setup/connections/${connectionId}/disconnect`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function upsertCustomConnection(
   input: CustomConnectionRequest
 ): Promise<{ success: boolean; connection?: ConnectionItem; error?: string }> {

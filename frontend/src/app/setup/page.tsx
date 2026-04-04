@@ -6,7 +6,10 @@ import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/components/LanguageProvider";
 import { openExternalUrl } from "@/lib/external";
 import {
+  authorizeConnection,
+  callbackConnection,
   deleteCustomConnection,
+  disconnectConnection,
   disconnectTunnel,
   getSetupStatus,
   localApiFetch,
@@ -60,6 +63,9 @@ export default function SetupPage() {
   const [customConnectionMessage, setCustomConnectionMessage] = useState("");
   const [customConnectionSaving, setCustomConnectionSaving] = useState(false);
   const [showConnectorAdvanced, setShowConnectorAdvanced] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState("");
+  const [connectingConnectionId, setConnectingConnectionId] = useState<string | null>(null);
+  const [disconnectingConnectionId, setDisconnectingConnectionId] = useState<string | null>(null);
 
   const getConnectionBadgeClass = (connection: ConnectionItem) => {
     if (connection.verified) return "bg-green-100 text-green-700";
@@ -138,6 +144,31 @@ export default function SetupPage() {
     }
   };
 
+  const supportsOAuthConnection = (connection: ConnectionItem) =>
+    connection.id === "google_calendar" ||
+    connection.id === "gmail" ||
+    connection.auth_type === "oauth" ||
+    connection.auth_type === "oauth2";
+
+  const isConnectionReady = (connection: ConnectionItem | undefined) =>
+    Boolean(connection && (connection.verified || connection.configured || connection.status === "connected"));
+
+  const pollConnectionStatus = async (connectionId: string, timeoutMs = 30000, intervalMs = 2000) => {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const latest = (await getSetupStatus()) as SetupStatus;
+      setStatus(latest);
+      const matched = latest.connections.find((connection) => connection.id === connectionId);
+      if (isConnectionReady(matched)) {
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+
+    return false;
+  };
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -147,6 +178,56 @@ export default function SetupPage() {
     const interval = setInterval(refreshStatus, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const state = params.get("state");
+    const code = params.get("code");
+    if (!state || !code) return;
+
+    const connectionId = state.split(":")[0]?.trim();
+    if (!connectionId) return;
+
+    let cancelled = false;
+
+    const handleOAuthCallback = async () => {
+      setConnectingConnectionId(connectionId);
+      setConnectionMessage("");
+      try {
+        await callbackConnection(connectionId, { code, state });
+        if (cancelled) return;
+        await pollConnectionStatus(connectionId);
+        if (cancelled) return;
+        const nextParams = new URLSearchParams(window.location.search);
+        nextParams.delete("code");
+        nextParams.delete("state");
+        const nextQuery = nextParams.toString();
+        window.history.replaceState(
+          {},
+          "",
+          `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`
+        );
+      } catch {
+        if (!cancelled) {
+          setConnectionMessage(
+            t("connection_callback_failed", "Could not finish the connection. Try again.")
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setConnectingConnectionId((current) => (current === connectionId ? null : current));
+        }
+      }
+    };
+
+    void handleOAuthCallback();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
   const waitForTunnelReady = async (timeoutMs = 12000) => {
     const startedAt = Date.now();
@@ -314,6 +395,41 @@ export default function SetupPage() {
       setMobileMessage(t("mobile_disconnect_failed", "Could not turn off the phone connection."));
     } finally {
       setDisconnecting(false);
+    }
+  };
+
+  const handleAuthorizeConnection = async (connectionId: string) => {
+    setConnectingConnectionId(connectionId);
+    setConnectionMessage("");
+    try {
+      const { auth_url } = await authorizeConnection(connectionId);
+      await openExternalUrl(auth_url);
+      const connected = await pollConnectionStatus(connectionId);
+      if (!connected) {
+        setConnectionMessage(
+          t(
+            "connection_pending_message",
+            "Waiting for the connection to finish. Complete the sign-in window, then the status will refresh here."
+          )
+        );
+      }
+    } catch {
+      setConnectionMessage(t("connection_authorize_failed", "Could not start the connection flow."));
+    } finally {
+      setConnectingConnectionId((current) => (current === connectionId ? null : current));
+    }
+  };
+
+  const handleDisconnectConnection = async (connectionId: string) => {
+    setDisconnectingConnectionId(connectionId);
+    setConnectionMessage("");
+    try {
+      await disconnectConnection(connectionId);
+      await refreshStatus();
+    } catch {
+      setConnectionMessage(t("connection_disconnect_failed", "Could not disconnect the service."));
+    } finally {
+      setDisconnectingConnectionId((current) => (current === connectionId ? null : current));
     }
   };
 
@@ -693,6 +809,9 @@ export default function SetupPage() {
           )}
         </p>
       </div>
+      {connectionMessage && (
+        <p className="text-sm text-gray-600">{connectionMessage}</p>
+      )}
       {connectedExternalConnections.length > 0 && (
         <div className="space-y-3">
           <div className="space-y-1">
@@ -731,6 +850,20 @@ export default function SetupPage() {
                   "If you want to allow real actions with this service, turn the related permission on in the permission section below."
                 )}
               </div>
+              {supportsOAuthConnection(connection) && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleDisconnectConnection(connection.id)}
+                    disabled={disconnectingConnectionId === connection.id}
+                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+                  >
+                    {disconnectingConnectionId === connection.id
+                      ? t("disconnecting_short", "Disconnecting...")
+                      : t("disconnect_service", "Disconnect")}
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -767,6 +900,23 @@ export default function SetupPage() {
                 </span>
               </div>
               <p className="text-xs leading-5 text-gray-500">{getConnectionActionHint(connection)}</p>
+              {supportsOAuthConnection(connection) && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleAuthorizeConnection(connection.id)}
+                    disabled={connectingConnectionId === connection.id}
+                    className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {connectingConnectionId === connection.id && (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    )}
+                    {connectingConnectionId === connection.id
+                      ? t("connecting_oauth", "Connecting...")
+                      : t("connect_service", "Connect")}
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
