@@ -1,0 +1,35 @@
+{
+  "id": "feat-capability-gate",
+  "title": "Add capability gate that requests missing permissions before falling back",
+  "goal": "작업 실행 시 필요한 연결/권한이 없으면, 바로 폴백하지 않고 사용자에게 먼저 연결을 요청한다. 사용자가 연결하면 최선의 방법으로 실행, 거부하면 차선(링크 등)으로 폴백. 결과 메시지에 어떤 경로로 처리됐는지 명시한다.",
+  "implementation_locations": {
+    "new_files": ["backend/orchestrator/capability_gate.py", "backend/tests/test_capability_gate.py"],
+    "modified_files": ["backend/orchestrator/engine.py", "backend/orchestrator/task.py"]
+  },
+  "test_requirements": [
+    {"case": "Task needing calendar API without OAuth returns needs_setup status", "expected": "task.status='needs_setup', task.result_data has setup_action with connection_id and capability"},
+    {"case": "Task needing gmail without OAuth returns needs_setup status", "expected": "task.status='needs_setup' with gmail connection info"},
+    {"case": "needs_setup result includes human-readable message", "expected": "result_data.setup_message explains what's needed in user's language"},
+    {"case": "needs_setup result includes fallback option", "expected": "result_data.fallback_available=true with fallback_description"},
+    {"case": "Task with satisfied capability executes normally", "expected": "task.status='done', no needs_setup"},
+    {"case": "check_capability for calendar returns missing when no OAuth token", "expected": "returns {satisfied: false, connection_id: 'google_calendar', setup_action: 'oauth'}"},
+    {"case": "check_capability for crawler returns satisfied (no auth needed)", "expected": "returns {satisfied: true}"},
+    {"case": "Task status 'needs_setup' is a new valid status", "expected": "task.py accepts 'needs_setup' as valid status"}
+  ],
+  "constraints": [
+    "capability_gate.py provides: check_capabilities(steps) -> list of missing capabilities",
+    "Each missing capability has: connection_id, capability_name, setup_action ('oauth'|'mcp_install'|'permission'), setup_message (bilingual), fallback_available (bool)",
+    "Engine calls check_capabilities BEFORE executing steps",
+    "If any capability is missing: set task.status='needs_setup', store missing info in result_data, return without executing",
+    "Frontend will handle needs_setup status to show connection prompt (not in scope here)",
+    "Do not modify router, plugins, or tools",
+    "Do not auto-connect — just report what's needed and stop",
+    "Existing tests must pass — tests that use persist=False or mock tools should not trigger capability gate"
+  ],
+  "branch_name": "feat/capability-gate",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_capability_gate -v"
+}

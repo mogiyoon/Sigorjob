@@ -1,0 +1,32 @@
+{
+  "id": "feat-needs-setup-frontend",
+  "title": "Add frontend UI for needs_setup status — prompt user to connect services",
+  "goal": "작업이 needs_setup 상태가 되면 프론트엔드에서 '이 작업을 완료하려면 X 연결이 필요합니다' 모달을 표시한다. '연결하기' 버튼은 setup 페이지의 해당 서비스로 이동, '링크로 대신하기' 버튼은 폴백 실행을 트리거한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/app/page.tsx", "frontend/src/lib/api.ts"]
+  },
+  "test_requirements": [
+    {"case": "api.ts has retryWithFallback function", "expected": "function calls POST /task/{id}/retry with fallback=true parameter"},
+    {"case": "Main page detects needs_setup status during polling", "expected": "when task status is needs_setup, shows setup prompt modal"},
+    {"case": "Setup prompt modal shows connection name and reason", "expected": "modal displays setup_message from task result_data"},
+    {"case": "Connect button navigates to setup page", "expected": "clicking Connect goes to /setup with connection_id highlighted"},
+    {"case": "Fallback button triggers retry with fallback", "expected": "clicking Use Fallback calls retryWithFallback and resumes polling"},
+    {"case": "Modal works in Tauri", "expected": "no window.open or browser-only APIs used"}
+  ],
+  "constraints": [
+    "Reuse the modal pattern from approval popup (Spec 24)",
+    "Setup prompt shows: setup_message, connection name, two buttons (Connect / Use Fallback)",
+    "If fallback_available is false, hide the fallback button",
+    "Use existing useLanguage() t() for button labels",
+    "Do not modify backend files",
+    "Do not add new npm dependencies",
+    "Must work in both browser and Tauri"
+  ],
+  "branch_name": "feat/needs-setup-frontend",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}
