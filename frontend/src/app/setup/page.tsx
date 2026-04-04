@@ -110,6 +110,28 @@ export default function SetupPage() {
     return t("connection_connect_hint", "Connect this before using related actions.");
   };
 
+  const getConnectionTitle = (connection: ConnectionItem) => {
+    if (connection.id === "gmail") return t("gmail_connection_title", "Gmail");
+    if (connection.id === "google_calendar") {
+      return t("google_calendar_connection_title", "Google Calendar");
+    }
+    if (connection.id === "mcp_runtime") return t("mcp_runtime_connection_title", "MCP Runtime");
+    return connection.title;
+  };
+
+  const getConnectionDescription = (connection: ConnectionItem) => {
+    if (connection.id === "gmail") {
+      return t("gmail_connection_desc", "Used for drafting emails and sending real Gmail messages.");
+    }
+    if (connection.id === "google_calendar") {
+      return t("google_calendar_connection_desc", "Used for creating events and checking calendar schedules.");
+    }
+    if (connection.id === "mcp_runtime") {
+      return t("mcp_runtime_connection_desc", "Shared runtime base for external MCP tools and presets.");
+    }
+    return connection.description;
+  };
+
   const getFriendlyAiError = (rawError?: string | null) => {
     if (!rawError) return "";
     const normalized = rawError.toLowerCase();
@@ -391,8 +413,11 @@ export default function SetupPage() {
     setMobileMessage("");
     try {
       await sendTestMobileNotification({
-        title: "Sigorjob test",
-        body: "If your phone is connected and the app is open, you should see this in a few seconds.",
+        title: t("notification_test_title", "Sigorjob test"),
+        body: t(
+          "notification_test_body",
+          "If your phone is connected and the app is open, you should see this in a few seconds."
+        ),
       });
       setMobileMessage(t("test_notification_sent", "A test notification has been queued. Keep the phone app open and wait a few seconds."));
     } catch {
@@ -696,7 +721,7 @@ export default function SetupPage() {
         {status?.ai_configured && !status.ai_verified && (
           <div className="space-y-2">
             <p className="text-xs text-amber-700">
-              {getFriendlyAiError(status.ai_validation_error) || "The key is saved, but real AI access is not confirmed yet."}
+              {getFriendlyAiError(status.ai_validation_error) || t("ai_key_saved_not_verified", "The AI key is saved, but real API access has not been confirmed yet.")}
             </p>
             {status.ai_validation_error && (
               <div className="space-y-2">
@@ -933,14 +958,14 @@ export default function SetupPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-900">{connection.title}</p>
+                    <p className="text-sm font-medium text-gray-900">{getConnectionTitle(connection)}</p>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getConnectionBadgeClass(connection)}`}
                     >
                       {getConnectionStatusLabel(connection)}
                     </span>
                   </div>
-                  <p className="text-xs leading-5 text-gray-600">{connection.description}</p>
+                  <p className="text-xs leading-5 text-gray-600">{getConnectionDescription(connection)}</p>
                 </div>
                 <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-500 border border-gray-200">
                   {connection.provider}
@@ -989,14 +1014,14 @@ export default function SetupPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-900">{connection.title}</p>
+                    <p className="text-sm font-medium text-gray-900">{getConnectionTitle(connection)}</p>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getConnectionBadgeClass(connection)}`}
                     >
                       {getConnectionStatusLabel(connection)}
                     </span>
                   </div>
-                  <p className="text-xs leading-5 text-gray-600">{connection.description}</p>
+                  <p className="text-xs leading-5 text-gray-600">{getConnectionDescription(connection)}</p>
                 </div>
                 <span className="rounded-full bg-gray-50 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-500 border border-gray-200">
                   {connection.provider}
@@ -1200,7 +1225,7 @@ export default function SetupPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-gray-900">Playwright</p>
+              <p className="text-sm font-medium text-gray-900">{t("playwright", "Playwright")}</p>
               <span
                 className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
                   status?.playwright.installed
@@ -1398,7 +1423,7 @@ export default function SetupPage() {
                       disabled={status?.cloudflared_installed === false}
                       title={
                         status?.cloudflared_installed === false
-                          ? "Install cloudflared first"
+                          ? t("install_cloudflared_first", "Install cloudflared first")
                           : undefined
                       }
                       className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -1499,7 +1524,7 @@ export default function SetupPage() {
             </div>
             <div className="bg-green-50 border border-green-200 rounded-2xl p-4 space-y-2">
               <p className="text-xs text-green-600">
-                {selectedMode === "quick" ? "Quick Tunnel" : t("named_tunnel")}
+                {selectedMode === "quick" ? t("quick_tunnel_label", "Quick Tunnel") : t("named_tunnel")}
               </p>
               <p className="text-sm text-green-700 font-medium">{t("tunnel_url")}</p>
               <p className="font-mono text-sm text-green-800 break-all">{tunnelUrl}</p>
