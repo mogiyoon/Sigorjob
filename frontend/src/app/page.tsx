@@ -13,6 +13,7 @@ import {
   ApprovalItem,
   approveTask,
   continueTaskWithAi,
+  ConnectionItem,
   deleteTask,
   deleteTasks,
   getBaseUrl,
@@ -23,6 +24,7 @@ import {
   listTasks,
   rejectTask,
   retryTask,
+  retryWithFallback,
   ScheduleItem,
   sendCommand,
   TaskResponse,
@@ -36,6 +38,14 @@ interface ApprovalModalState {
   command: string;
   riskLevel: string;
   reason: string | null;
+}
+
+interface SetupPromptState {
+  taskId: string;
+  connectionId: string | null;
+  connectionName: string;
+  setupMessage: string;
+  fallbackAvailable: boolean;
 }
 
 function CircleIconButton({
@@ -70,6 +80,7 @@ export default function Home() {
   const [cloudflaredInstalled, setCloudflaredInstalled] = useState<boolean | null>(null);
   const [isLocalUi, setIsLocalUi] = useState(false);
   const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
+  const [connections, setConnections] = useState<ConnectionItem[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [retryingTaskId, setRetryingTaskId] = useState<string | null>(null);
@@ -85,7 +96,9 @@ export default function Home() {
   const [backendStartupError, setBackendStartupError] = useState<string | null>(null);
   const [backendStartupLogPath, setBackendStartupLogPath] = useState<string | null>(null);
   const [approvalModal, setApprovalModal] = useState<ApprovalModalState | null>(null);
+  const [setupPrompt, setSetupPrompt] = useState<SetupPromptState | null>(null);
   const [approvalActionLoading, setApprovalActionLoading] = useState<"approve" | "reject" | null>(null);
+  const [setupActionLoading, setSetupActionLoading] = useState<"connect" | "fallback" | null>(null);
   const approvalDecisionResolverRef = useRef<((approved: boolean) => void) | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<
     | { mode: "single"; taskId: string }
@@ -101,6 +114,7 @@ export default function Home() {
       setAiConfigured(Boolean(data.ai_configured));
       setAiVerified(Boolean(data.ai_verified));
       setAiValidationError(data.ai_validation_error ?? null);
+      setConnections(data.connections ?? []);
     } catch {
       // backend may still be starting when the desktop app first opens
     }
@@ -153,6 +167,18 @@ export default function Home() {
       setApprovals(approvalData.approvals);
       setSchedules(scheduleData.schedules);
       setTasks(taskData.tasks);
+      setSetupPrompt((current) => {
+        if (current) {
+          const refreshed = taskData.tasks.find((task) => task.task_id === current.taskId);
+          if (!refreshed || String(refreshed.status) !== "needs_setup") {
+            return null;
+          }
+          return createSetupPrompt(refreshed);
+        }
+
+        const pendingSetupTask = taskData.tasks.find((task) => String(task.status) === "needs_setup");
+        return pendingSetupTask ? createSetupPrompt(pendingSetupTask) : null;
+      });
       if (isLocalUi) {
         await refreshRuntimeStatus();
       }
@@ -171,6 +197,35 @@ export default function Home() {
       }
       return prev.map((task) => (task.task_id === updated.task_id ? updated : task));
     });
+  };
+
+  const createSetupPrompt = (task: TaskResponse): SetupPromptState | null => {
+    const result = (task.result ?? {}) as {
+      setup_message?: unknown;
+      fallback_available?: unknown;
+      setup_action?: { connection_id?: unknown } | null;
+    };
+    const setupMessage =
+      typeof result.setup_message === "string" && result.setup_message.trim()
+        ? result.setup_message.trim()
+        : "";
+    if (!setupMessage) return null;
+
+    const connectionId =
+      typeof result.setup_action?.connection_id === "string" && result.setup_action.connection_id.trim()
+        ? result.setup_action.connection_id.trim()
+        : null;
+    const matchedConnection = connectionId
+      ? connections.find((connection) => connection.id === connectionId)
+      : null;
+
+    return {
+      taskId: task.task_id,
+      connectionId,
+      connectionName: matchedConnection?.title || connectionId || t("settings", "Setup"),
+      setupMessage,
+      fallbackAvailable: Boolean(result.fallback_available),
+    };
   };
 
   const waitForApprovalDecision = async (task: TaskResponse): Promise<boolean> => {
@@ -239,6 +294,11 @@ export default function Home() {
           upsertTask(failedTask);
           return failedTask;
         }
+      }
+
+      if (String(updated.status) === "needs_setup") {
+        setSetupPrompt(createSetupPrompt(updated));
+        return updated;
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -327,6 +387,38 @@ export default function Home() {
       console.error(error);
     } finally {
       setRetryingTaskId(null);
+    }
+  };
+
+  const handleOpenSetup = () => {
+    if (!setupPrompt) return;
+    setSetupActionLoading("connect");
+    const query = new URLSearchParams();
+    if (setupPrompt.connectionId) {
+      query.set("connection_id", setupPrompt.connectionId);
+      query.set("highlight", setupPrompt.connectionId);
+    }
+    query.set("source", "needs_setup");
+    router.push(`/setup${query.toString() ? `?${query.toString()}` : ""}`);
+    setSetupActionLoading(null);
+  };
+
+  const handleRetryWithFallback = async () => {
+    if (!setupPrompt) return;
+    setSetupActionLoading("fallback");
+    setRetryingTaskId(setupPrompt.taskId);
+    try {
+      const retried = await retryWithFallback(setupPrompt.taskId);
+      setSetupPrompt(null);
+      upsertTask(retried);
+      const final = await pollTaskUntilSettled(retried.task_id);
+      upsertTask(final);
+      await refreshDashboard();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setRetryingTaskId(null);
+      setSetupActionLoading(null);
     }
   };
 
@@ -541,6 +633,64 @@ export default function Home() {
                 className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
               >
                 {approvalActionLoading === "approve" ? t("approving", "Approving...") : t("approve")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {setupPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
+          <div className="w-full max-w-lg rounded-[2rem] border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.22em] text-gray-400">
+                  {t("setup_required", "Setup required")}
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-gray-950">
+                  {t("setup_modal_title", "Connect a service to continue")}
+                </h2>
+              </div>
+              <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800">
+                {setupPrompt.connectionName}
+              </span>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {t("connection", "Connection")}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-gray-900">{setupPrompt.connectionName}</p>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {t("setup_reason", "Why this is needed")}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-gray-700">{setupPrompt.setupMessage}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              {setupPrompt.fallbackAvailable && (
+                <button
+                  type="button"
+                  onClick={handleRetryWithFallback}
+                  disabled={setupActionLoading !== null}
+                  className="rounded-2xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
+                >
+                  {setupActionLoading === "fallback"
+                    ? t("running", "Running...")
+                    : t("use_fallback", "Use Fallback")}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleOpenSetup}
+                disabled={setupActionLoading !== null}
+                className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
+              >
+                {setupActionLoading === "connect" ? t("connecting", "Connecting...") : t("connect")}
               </button>
             </div>
           </div>

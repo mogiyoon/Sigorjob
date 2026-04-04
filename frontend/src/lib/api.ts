@@ -274,6 +274,14 @@ export async function retryTask(taskId: string): Promise<TaskResponse> {
   return res.json();
 }
 
+export async function retryWithFallback(taskId: string): Promise<TaskResponse> {
+  const res = await apiFetch(`/task/${taskId}/retry?fallback=true`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function continueTaskWithAi(taskId: string): Promise<TaskResponse> {
   const res = await apiFetch(`/task/${taskId}/continue-ai`, {
     method: "POST",
