@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from ai.runtime import has_api_key, validate_connection
 from tunnel import manager as tunnel
 from connections import oauth
+from connections.mcp_presets import install_preset, list_presets, uninstall_preset
 from connections.oauth_scopes import get_scopes_for_connection
 from connections.registry import (
     delete_custom_connection,
@@ -112,6 +113,27 @@ async def setup_status():
 @router.get("/setup/connections")
 async def get_connections():
     return {"connections": list_connections()}
+
+
+@router.get("/setup/mcp/presets")
+async def get_mcp_presets():
+    return {"presets": list_presets()}
+
+
+@router.post("/setup/mcp/presets/{preset_id}/install")
+async def install_mcp_preset(preset_id: str):
+    config = install_preset(preset_id)
+    if config is None:
+        raise HTTPException(status_code=404, detail="Unknown MCP preset.")
+    return {"success": True, "server": config}
+
+
+@router.post("/setup/mcp/presets/{preset_id}/uninstall")
+async def uninstall_mcp_preset(preset_id: str):
+    removed = uninstall_preset(preset_id)
+    if removed is None:
+        raise HTTPException(status_code=404, detail="Unknown MCP preset.")
+    return {"success": True, "preset_id": preset_id}
 
 
 @router.post("/setup/connections/{connection_id}")
