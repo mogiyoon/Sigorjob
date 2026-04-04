@@ -1,0 +1,30 @@
+{
+  "id": "feat-calendar-capability-check",
+  "title": "Make calendar_helper check OAuth before executing and delegate to capability gate",
+  "goal": "calendar_helper 플러그인이 실행 전에 OAuth 토큰을 확인하고, 없으면 링크를 바로 만들지 않고 needs_setup 상태를 반환한다. 사용자가 연결하거나 폴백을 선택한 후에만 결과를 반환한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["backend/plugins/calendar_helper/plugin.py", "backend/orchestrator/capability_gate.py"]
+  },
+  "test_requirements": [
+    {"case": "calendar_helper with OAuth token creates event via API", "expected": "success=True, data has event from API"},
+    {"case": "calendar_helper without OAuth token returns needs_connection result", "expected": "success=False, error contains 'connection required', data has fallback_url"},
+    {"case": "capability_gate detects calendar_helper as needing OAuth", "expected": "check_capabilities returns missing capability for google_calendar"},
+    {"case": "Fallback URL is still included in result for frontend to use", "expected": "data.fallback_url contains google calendar template link"},
+    {"case": "Existing calendar link generation logic preserved as fallback", "expected": "when fallback requested, same link as before is returned"}
+  ],
+  "constraints": [
+    "Do not remove the link generation code — move it to a _build_fallback_link() method",
+    "Plugin run() should: check OAuth → if yes: API call → if no: return error with fallback_url",
+    "The error result must include fallback_url so frontend can offer 'use link instead' option",
+    "capability_gate.py must recognize calendar_helper as needing google_calendar OAuth",
+    "Do not modify other plugins",
+    "Existing calendar tests that don't mock OAuth should still work (they test link generation path)"
+  ],
+  "branch_name": "feat/calendar-capability-check",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_plugins tests.test_capability_gate -v"
+}

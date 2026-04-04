@@ -1,0 +1,33 @@
+{
+  "id": "feat-setup-page-i18n",
+  "title": "Translate all remaining English text in setup page to Korean",
+  "goal": "설정 페이지에서 영어로 남아있는 모든 텍스트를 한국어 번역 딕셔너리에 추가한다. Tools, Playwright, External connections 설명, MCP Presets, Connect 버튼 등을 포함한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/components/LanguageProvider.tsx", "frontend/src/app/setup/page.tsx"]
+  },
+  "test_requirements": [
+    {"case": "Tools section header translated", "expected": "ko dict has key for 'Tools' → '도구'"},
+    {"case": "Playwright description translated", "expected": "ko dict has keys for playwright status, install button, description"},
+    {"case": "External connections header translated", "expected": "ko dict has key for section header and description"},
+    {"case": "Gmail/Calendar descriptions translated", "expected": "ko dict has keys for service descriptions"},
+    {"case": "MCP Presets section translated", "expected": "ko dict has keys for preset section header, install/uninstall buttons"},
+    {"case": "Connect/Disconnect buttons translated", "expected": "ko dict has keys for OAuth buttons"},
+    {"case": "All hardcoded English strings in setup page use t() function", "expected": "no raw English strings remain in Korean mode"}
+  ],
+  "constraints": [
+    "Add translations to the ko dictionary in LanguageProvider.tsx",
+    "Also add corresponding en dictionary entries for consistency",
+    "Replace all hardcoded English strings in setup/page.tsx with t() calls",
+    "Do not change any functionality — only text display",
+    "Do not modify backend files",
+    "Keep existing translation keys intact",
+    "Technical terms (OAuth, MCP, Playwright, API) can stay in English within Korean text"
+  ],
+  "branch_name": "feat/setup-page-i18n",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}
