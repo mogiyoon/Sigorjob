@@ -1,0 +1,40 @@
+{
+  "id": "feat-setup-page-simplify",
+  "title": "Simplify setup page — summary view with detail subpages",
+  "goal": "설정 메인 페이지를 심플한 요약 뷰로 바꾸고, 상세 설정은 하위 페이지로 분리한다. 메인에는 각 섹션의 상태 요약(연결됨/미연결, 허용/미허용)만 보여주고 '자세히' 버튼으로 상세 페이지로 이동한다.",
+  "implementation_locations": {
+    "new_files": [
+      "frontend/src/app/setup/connections/page.tsx",
+      "frontend/src/app/setup/permissions/page.tsx",
+      "frontend/src/app/setup/tools/page.tsx"
+    ],
+    "modified_files": ["frontend/src/app/setup/page.tsx"]
+  },
+  "test_requirements": [
+    {"case": "Main setup page shows summary cards only", "expected": "each section is a compact card with status + detail link"},
+    {"case": "AI section shows connected/not connected status", "expected": "green badge if verified, gray if not"},
+    {"case": "Connections section shows count of connected services", "expected": "e.g. 0/2 연결됨"},
+    {"case": "Permissions section shows count of allowed permissions", "expected": "e.g. 5/12 허용됨"},
+    {"case": "Tools section shows installed/not installed count", "expected": "e.g. Playwright 미설치"},
+    {"case": "Detail link navigates to subpage", "expected": "/setup/connections, /setup/permissions, /setup/tools"},
+    {"case": "Subpages have back button to main setup", "expected": "each subpage has ← 설정으로 돌아가기 link"}
+  ],
+  "constraints": [
+    "Main setup page should fit on one screen without scrolling for most users",
+    "Move existing detailed UI into subpages — do not rewrite, just relocate",
+    "Keep mobile tunnel and AI key sections on main page (they are primary setup)",
+    "External connections detail → /setup/connections",
+    "Permissions detail → /setup/permissions",
+    "Tools + MCP Presets detail → /setup/tools",
+    "Custom connectors → /setup/connections (bottom section)",
+    "Use existing Tailwind patterns, no new dependencies",
+    "Use t() for all new text",
+    "Must work in Tauri (no router.push to external URLs)"
+  ],
+  "branch_name": "feat/setup-page-simplify",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}

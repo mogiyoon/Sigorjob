@@ -1,0 +1,32 @@
+{
+  "id": "feat-frontend-full-korean",
+  "title": "Complete Korean translation for all frontend UI — buttons, modals, status text",
+  "goal": "프론트엔드의 모든 영어 텍스트를 한국어 번역 딕셔너리에 추가한다. 메인 페이지의 approval 모달, needs_setup 모달, 버튼(Use Fallback, Connect, Approve, Reject 등), 상태 텍스트, 에러 메시지를 포함한다. 한국어 모드에서 영어가 하나도 보이지 않도록 한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": ["frontend/src/components/LanguageProvider.tsx", "frontend/src/app/page.tsx"]
+  },
+  "test_requirements": [
+    {"case": "Approval modal buttons translated", "expected": "ko dict has 승인/거부 for approve/reject"},
+    {"case": "Needs setup modal translated", "expected": "ko dict has 연결하기/링크로 대신하기 for connect/use fallback"},
+    {"case": "Task status texts translated", "expected": "ko dict has keys for done/failed/pending/running/needs_setup/approval_required"},
+    {"case": "Error messages translated", "expected": "ko dict has keys for network error, timeout, load failed"},
+    {"case": "All hardcoded English in page.tsx uses t()", "expected": "grep for raw English strings finds none in user-facing text"},
+    {"case": "Button labels intuitive in Korean", "expected": "Use Fallback → 링크로 대신하기, Connect → 서비스 연결, Approve → 승인, Reject → 거부"}
+  ],
+  "constraints": [
+    "Add to existing ko and en dictionaries in LanguageProvider.tsx",
+    "Replace ALL hardcoded English strings in page.tsx with t() calls",
+    "Korean labels must be intuitive — no direct English translation, use natural Korean (e.g., Use Fallback → 링크로 대신하기)",
+    "Keep technical terms that have no good Korean equivalent (OAuth, MCP, API) in English within Korean text",
+    "Do not modify backend files",
+    "Do not change functionality",
+    "Must work in Tauri"
+  ],
+  "branch_name": "feat/frontend-full-korean",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd frontend && npx tsc --noEmit 2>&1 || true",
+  "test_focus_command": "cd frontend && npx tsc --noEmit 2>&1 || true"
+}
