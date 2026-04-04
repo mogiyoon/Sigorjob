@@ -173,6 +173,13 @@ export interface ConnectionItem {
   next_action: string;
 }
 
+export interface McpPresetItem {
+  id: string;
+  name: string;
+  description: string;
+  installed: boolean;
+}
+
 export interface CustomCommandItem {
   id: string;
   trigger: string;
@@ -376,6 +383,32 @@ export async function deleteCustomCommand(ruleId: string): Promise<void> {
 
 export async function getSetupStatus(): Promise<SetupStatusResponse> {
   const res = await localApiFetch("/setup/status");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getMcpPresets(): Promise<McpPresetItem[]> {
+  const res = await localApiFetch("/setup/mcp/presets");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function installMcpPreset(
+  presetId: string
+): Promise<{ success: boolean; error?: string }> {
+  const res = await localApiFetch(`/setup/mcp/presets/${encodeURIComponent(presetId)}/install`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function uninstallMcpPreset(
+  presetId: string
+): Promise<{ success: boolean; error?: string }> {
+  const res = await localApiFetch(`/setup/mcp/presets/${encodeURIComponent(presetId)}/uninstall`, {
+    method: "POST",
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

@@ -11,12 +11,16 @@ import {
   deleteCustomConnection,
   disconnectConnection,
   disconnectTunnel,
+  getMcpPresets,
   getSetupStatus,
+  installMcpPreset,
   localApiFetch,
   sendTestMobileNotification,
   type ConnectionItem,
   type CustomConnectionRequest,
+  type McpPresetItem,
   type PermissionItem,
+  uninstallMcpPreset,
   upsertCustomConnection,
   updatePermission,
 } from "@/lib/api";
@@ -66,6 +70,12 @@ export default function SetupPage() {
   const [connectionMessage, setConnectionMessage] = useState("");
   const [connectingConnectionId, setConnectingConnectionId] = useState<string | null>(null);
   const [disconnectingConnectionId, setDisconnectingConnectionId] = useState<string | null>(null);
+  const [mcpPresets, setMcpPresets] = useState<McpPresetItem[]>([]);
+  const [mcpPresetMessage, setMcpPresetMessage] = useState("");
+  const [mcpPresetAction, setMcpPresetAction] = useState<{
+    presetId: string;
+    type: "install" | "uninstall";
+  } | null>(null);
 
   const getConnectionBadgeClass = (connection: ConnectionItem) => {
     if (connection.verified) return "bg-green-100 text-green-700";
@@ -144,6 +154,15 @@ export default function SetupPage() {
     }
   };
 
+  const refreshMcpPresets = async () => {
+    try {
+      const presets = await getMcpPresets();
+      setMcpPresets(presets);
+    } catch {
+      // ignore initial preset fetch failures
+    }
+  };
+
   const supportsOAuthConnection = (connection: ConnectionItem) =>
     connection.id === "google_calendar" ||
     connection.id === "gmail" ||
@@ -175,8 +194,13 @@ export default function SetupPage() {
       setOpenedFromSettings(params.get("source") === "settings");
     }
     refreshStatus();
+    refreshMcpPresets();
     const interval = setInterval(refreshStatus, 3000);
-    return () => clearInterval(interval);
+    const presetInterval = setInterval(refreshMcpPresets, 3000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(presetInterval);
+    };
   }, []);
 
   useEffect(() => {
@@ -430,6 +454,52 @@ export default function SetupPage() {
       setConnectionMessage(t("connection_disconnect_failed", "Could not disconnect the service."));
     } finally {
       setDisconnectingConnectionId((current) => (current === connectionId ? null : current));
+    }
+  };
+
+  const handleInstallMcpPreset = async (presetId: string) => {
+    setMcpPresetAction({ presetId, type: "install" });
+    setMcpPresetMessage("");
+    try {
+      const data = await installMcpPreset(presetId);
+      if (!data.success) {
+        setMcpPresetMessage(
+          data.error || t("mcp_preset_install_failed", "Could not install the MCP preset.")
+        );
+        return;
+      }
+      await refreshMcpPresets();
+    } catch {
+      setMcpPresetMessage(
+        t("mcp_preset_install_failed", "Could not install the MCP preset.")
+      );
+    } finally {
+      setMcpPresetAction((current) =>
+        current?.presetId === presetId && current.type === "install" ? null : current
+      );
+    }
+  };
+
+  const handleUninstallMcpPreset = async (presetId: string) => {
+    setMcpPresetAction({ presetId, type: "uninstall" });
+    setMcpPresetMessage("");
+    try {
+      const data = await uninstallMcpPreset(presetId);
+      if (!data.success) {
+        setMcpPresetMessage(
+          data.error || t("mcp_preset_uninstall_failed", "Could not uninstall the MCP preset.")
+        );
+        return;
+      }
+      await refreshMcpPresets();
+    } catch {
+      setMcpPresetMessage(
+        t("mcp_preset_uninstall_failed", "Could not uninstall the MCP preset.")
+      );
+    } finally {
+      setMcpPresetAction((current) =>
+        current?.presetId === presetId && current.type === "uninstall" ? null : current
+      );
     }
   };
 
@@ -1003,6 +1073,88 @@ export default function SetupPage() {
     </div>
   );
 
+  const mcpPresetsCard = (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm">
+      <div className="space-y-1">
+        <h2 className="font-semibold text-gray-900">
+          {t("mcp_presets_title", "MCP Presets")}
+        </h2>
+        <p className="text-sm text-gray-600">
+          {t(
+            "mcp_presets_desc",
+            "Install or remove ready-made MCP bundles with one click."
+          )}
+        </p>
+      </div>
+      {mcpPresetMessage && (
+        <p className="text-sm text-gray-600">{mcpPresetMessage}</p>
+      )}
+      {mcpPresets.length > 0 ? (
+        <div className="space-y-3">
+          {mcpPresets.map((preset) => {
+            const isInstalling =
+              mcpPresetAction?.presetId === preset.id && mcpPresetAction.type === "install";
+            const isUninstalling =
+              mcpPresetAction?.presetId === preset.id && mcpPresetAction.type === "uninstall";
+
+            return (
+              <div
+                key={preset.id}
+                className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-900">{preset.name}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          preset.installed
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {preset.installed
+                          ? t("installed_short", "Installed")
+                          : t("not_installed_short", "Not installed")}
+                      </span>
+                    </div>
+                    <p className="text-xs leading-5 text-gray-600">{preset.description}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      preset.installed
+                        ? handleUninstallMcpPreset(preset.id)
+                        : handleInstallMcpPreset(preset.id)
+                    }
+                    disabled={isInstalling || isUninstalling}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 ${
+                      preset.installed
+                        ? "border border-red-200 text-red-700"
+                        : "bg-gray-900 text-white"
+                    }`}
+                  >
+                    {isInstalling
+                      ? t("installing_short", "Installing...")
+                      : isUninstalling
+                        ? t("uninstalling_short", "Uninstalling...")
+                        : preset.installed
+                          ? t("uninstall", "Uninstall")
+                          : t("install", "Install")}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+          {t("mcp_presets_empty", "No MCP presets are available right now.")}
+        </div>
+      )}
+    </div>
+  );
+
   const mobileOperationsCard = (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3 shadow-sm">
       <div className="space-y-1">
@@ -1178,6 +1330,7 @@ export default function SetupPage() {
               <div className="space-y-6">
                 {aiSettingsCard}
                 {externalConnectionsCard}
+                {mcpPresetsCard}
                 {permissionsCard}
               </div>
             </section>
@@ -1269,6 +1422,7 @@ export default function SetupPage() {
               <div className="space-y-6">
                 {aiSettingsCard}
                 {externalConnectionsCard}
+                {mcpPresetsCard}
                 {permissionsCard}
               </div>
             </section>
