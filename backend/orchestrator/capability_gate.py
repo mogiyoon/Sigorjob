@@ -162,26 +162,24 @@ def _build_missing_result(
 def _oauth_message(connection_id: str, capability_name: str) -> str:
     title = _connection_title(connection_id)
     capability_label = _capability_label(capability_name)
-    return f"{title} 연결이 필요합니다. {capability_label}을(를) 계속하려면 OAuth 연결을 완료하세요. {title} connection is required. Complete OAuth setup to continue with {capability_label}."
+    return f"{title} 연결이 필요합니다. 설정에서 연결을 완료해주세요."
 
 
 def _permission_message(connection_id: str, capability_name: str) -> str:
     title = _connection_title(connection_id)
-    capability_label = _capability_label(capability_name)
-    return f"{title} 권한이 필요합니다. {capability_label}을(를) 실행하려면 필요한 권한을 허용하세요. {title} permissions are required. Grant the required permissions to continue with {capability_label}."
+    return f"{title} 권한이 필요합니다. 설정에서 권한을 허용해주세요."
 
 
 def _mcp_message(connection_id: str, capability_name: str) -> str:
-    capability_label = _capability_label(capability_name)
-    return f"{connection_id} MCP 서버 설정이 필요합니다. {capability_label}을(를) 계속하려면 MCP 서버를 설치하세요. The {connection_id} MCP server is required. Install it to continue with {capability_label}."
+    return f"{connection_id} MCP 서버 설정이 필요합니다. 설정에서 MCP 서버를 설치해주세요."
 
 
 def _fallback_description(connection_id: str, capability_name: str) -> str:
     if connection_id == "google_calendar":
-        return "연결을 거부하면 캘린더 링크로 대신 안내할 수 있습니다. If you decline, the task can fall back to a calendar link."
+        return "링크로 대신 안내할 수 있습니다."
     if connection_id == "gmail":
-        return "연결을 거부하면 메일 링크나 초안으로 대신 안내할 수 있습니다. If you decline, the task can fall back to a mail link or draft."
-    return f"연결을 거부하면 제한된 방식으로 {capability_name}을(를) 안내할 수 있습니다. If you decline, the task may fall back to a limited {capability_name} flow."
+        return "메일 링크로 대신 안내할 수 있습니다."
+    return "제한된 방식으로 안내할 수 있습니다."
 
 
 def _connection_title(connection_id: str) -> str:

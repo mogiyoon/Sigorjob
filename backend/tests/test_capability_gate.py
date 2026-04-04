@@ -95,6 +95,18 @@ class CapabilityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["connection_id"], "google_calendar")
         self.assertEqual(result["capability_name"], "create_calendar_event")
 
+    def test_check_capabilities_detects_calendar_helper_as_google_calendar_oauth_dependency(self):
+        self.config_data["granted_permissions"] = ["external_connection_access", "calendar_event_creation"]
+
+        result = capability_gate.check_capabilities(
+            [Step(tool="calendar_helper", params={"text": "캘린더에 회의 일정 추가해줘"})]
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["connection_id"], "google_calendar")
+        self.assertEqual(result[0]["capability_name"], "create_calendar_event")
+        self.assertEqual(result[0]["setup_action"], "oauth")
+
     async def test_calendar_task_without_oauth_returns_needs_setup(self):
         self.config_data["granted_permissions"] = ["external_connection_access", "calendar_event_creation"]
         task = Task(
@@ -138,7 +150,6 @@ class CapabilityGateTests(unittest.IsolatedAsyncioTestCase):
         result = await orchestrator_engine.run(task, persist=False)
 
         self.assertIn("연결이 필요", result.result_data["setup_message"])
-        self.assertIn("connection is required", result.result_data["setup_message"])
 
     async def test_needs_setup_result_includes_fallback_option(self):
         self.config_data["granted_permissions"] = ["external_connection_access", "calendar_event_creation"]
@@ -150,7 +161,7 @@ class CapabilityGateTests(unittest.IsolatedAsyncioTestCase):
         result = await orchestrator_engine.run(task, persist=False)
 
         self.assertTrue(result.result_data["fallback_available"])
-        self.assertIn("calendar link", result.result_data["fallback_description"])
+        self.assertIn("링크", result.result_data["fallback_description"])
 
     async def test_task_with_satisfied_capability_executes_normally(self):
         self.config_data["granted_permissions"] = ["external_connection_access", "calendar_event_creation"]
