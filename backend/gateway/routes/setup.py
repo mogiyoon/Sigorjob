@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+import subprocess
+import sys
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from datetime import datetime, timezone
 from ai.runtime import has_api_key, validate_connection
 from tunnel import manager as tunnel
 from connections import oauth
@@ -15,6 +18,7 @@ from connections.registry import (
 )
 from config.store import config_store
 from config.secret_store import secret_store
+from main import check_playwright_status
 from permissions import list_permissions, set_permission
 
 router = APIRouter()
@@ -102,6 +106,7 @@ async def setup_status():
         "ai_validation_error": ai_validation_error,
         "ai_verified_at": ai_verified_at,
         "ai_storage_backend": secret_store.backend("anthropic_api_key"),
+        "playwright": check_playwright_status(),
         "connections": list_connections(),
         "permissions": list_permissions(
             ai_configured=ai_ready,
@@ -242,6 +247,37 @@ async def update_permission(req: PermissionUpdateRequest):
         return {"success": False, "error": "permission_id is required"}
     set_permission(permission_id, req.granted)
     return {"success": True, "permission_id": permission_id, "granted": req.granted}
+
+
+@router.post("/setup/playwright/install")
+async def install_playwright():
+    pip_result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "playwright"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if pip_result.returncode != 0:
+        return {
+            "success": False,
+            "error": (pip_result.stderr or pip_result.stdout or "pip install playwright failed").strip(),
+            "risk_level": "medium",
+        }
+
+    browser_result = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if browser_result.returncode != 0:
+        return {
+            "success": False,
+            "error": (browser_result.stderr or browser_result.stdout or "playwright install chromium failed").strip(),
+            "risk_level": "medium",
+        }
+
+    return {"success": True, "risk_level": "medium"}
 
 
 @router.post("/setup/ai")
