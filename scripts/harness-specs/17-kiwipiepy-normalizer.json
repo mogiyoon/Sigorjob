@@ -1,0 +1,35 @@
+{
+  "id": "feat-kiwipiepy-normalizer",
+  "title": "Replace hardcoded Korean particle regex with kiwipiepy morphological analyzer",
+  "goal": "한국어 형태소 분석기 kiwipiepy를 도입하여 URL 뒤 조사 제거, 명령어 핵심어 추출을 자동화한다. 하드코딩된 조사 목록 대신 형태소 분석으로 자동 처리한다. kiwipiepy 미설치 시 기존 정규표현식으로 폴백한다.",
+  "implementation_locations": {
+    "new_files": ["backend/intent/korean.py", "backend/tests/test_korean_normalizer.py"],
+    "modified_files": ["backend/intent/normalizer.py"]
+  },
+  "test_requirements": [
+    {"case": "URL with particle 에서 stripped", "expected": "https://news.hada.io에서 → https://news.hada.io"},
+    {"case": "URL with particle 으로 stripped", "expected": "https://google.com으로 → https://google.com"},
+    {"case": "URL with particle 을 stripped", "expected": "https://example.com을 → https://example.com"},
+    {"case": "URL with particle 에서의 stripped", "expected": "https://news.hada.io에서의 → https://news.hada.io"},
+    {"case": "URL without particle unchanged", "expected": "https://example.com → https://example.com"},
+    {"case": "Non-URL Korean text unchanged", "expected": "네이버에서 검색해줘 → unchanged (네이버에서 is not a URL)"},
+    {"case": "Fallback to regex when kiwipiepy not installed", "expected": "still strips common particles like 에서, 을, 를"},
+    {"case": "extract_keywords returns nouns and verbs", "expected": "뉴스 크롤링해줘 → keywords include 뉴스, 크롤링"},
+    {"case": "strip_particles_from_url handles multiple URLs in command", "expected": "both URLs cleaned"}
+  ],
+  "constraints": [
+    "kiwipiepy is optional — if not installed, fall back to existing regex approach",
+    "Do not remove the existing regex fallback, wrap it as the else branch",
+    "korean.py must be a standalone module importable without side effects",
+    "Do not modify any other files besides normalizer.py",
+    "Do not change detect_intent or other normalizer functions — only normalize_command",
+    "Existing normalizer tests must continue to pass",
+    "Add kiwipiepy to requirements-optional.txt if the file exists, otherwise create it"
+  ],
+  "branch_name": "feat/kiwipiepy-normalizer",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_korean_normalizer -v"
+}
