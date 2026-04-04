@@ -1,0 +1,43 @@
+{
+  "id": "feat-ai-first-router",
+  "title": "Rewrite intent router to AI-first architecture with legacy fallback",
+  "goal": "라우터를 AI-first로 전환한다. API 키가 있으면 항상 ai_agent.plan()을 먼저 호출하여 멀티스텝 계획을 받는다. API 키가 없으면 기존 규칙 기반 라우팅(_route_legacy)으로 폴백한다. AI 프롬프트를 언어 무관으로 수정한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tests/test_ai_first_router.py"],
+    "modified_files": [
+      "backend/intent/router.py",
+      "backend/ai/agent.py",
+      "backend/ai/summarizer.py",
+      "backend/orchestrator/task.py"
+    ]
+  },
+  "test_requirements": [
+    {"case": "AI-first: command with API key calls ai_agent.plan()", "expected": "task has steps from AI plan, used_ai=True"},
+    {"case": "AI-first: multi-step plan returned by AI", "expected": "fake AI returns 3 steps, all 3 appear in task.steps"},
+    {"case": "Legacy: command without API key uses rule matching", "expected": "simple URL command routes to crawler, used_ai=False"},
+    {"case": "Legacy: all existing router tests still pass", "expected": "test_intent_router.py and test_plugins.py pass unchanged"},
+    {"case": "Custom command still short-circuits before AI", "expected": "custom command matched before AI plan called"},
+    {"case": "AI plan with param_template steps preserved", "expected": "step.param_template=True passed through from AI response"},
+    {"case": "AI plan with condition steps preserved", "expected": "step.condition field passed through from AI response"},
+    {"case": "Summarizer prompt is language-agnostic", "expected": "prompt says 'same language as user command' not 'Korean'"}
+  ],
+  "constraints": [
+    "Extract current non-AI routing into _route_legacy() — do NOT delete it, call it when has_api_key()=False",
+    "Keep normalize_command() call before AI plan — URL particle stripping helps AI too",
+    "Keep _hydrate_step_params() and _annotate_risk() — called on AI plan results too",
+    "Keep custom command check at top of route() — unchanged",
+    "In agent.py: change SYSTEM_PROMPT to say 'You are the PRIMARY planner' and 'Respond in same language as user'",
+    "In agent.py: increase max_tokens from 1024 to 2048 in plan()",
+    "In summarizer.py: change 'in Korean' to 'in the same language as the user command'",
+    "In task.py: add ai_usage field (dict, default empty), fix duplicate used_ai if present",
+    "Do NOT modify tools/, plugins/, orchestrator/engine.py, normalizer.py, korean.py, rules/",
+    "All existing tests that set has_api_key=False must continue to pass unchanged",
+    "New test file must mock ai_agent.plan() and has_api_key() — no real AI calls"
+  ],
+  "branch_name": "feat/ai-first-router",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_ai_first_router -v"
+}

@@ -1,0 +1,34 @@
+{
+  "id": "feat-multi-step-detection",
+  "title": "Detect complex multi-step requests using morphological verb count",
+  "goal": "kiwipiepy 형태소 분석으로 명령어의 동사(VV, VX, XSV) 개수를 세서 복합 요청을 감지한다. 동사 2개 이상이면 AI 멀티스텝 계획으로 라우팅하고, 1개 이하면 기존 규칙 매칭을 사용한다. kiwipiepy 미설치 시 연결어미 패턴 폴백.",
+  "implementation_locations": {
+    "new_files": ["backend/intent/complexity.py", "backend/tests/test_complexity_detection.py"],
+    "modified_files": ["backend/intent/router.py"]
+  },
+  "test_requirements": [
+    {"case": "Simple crawl request uses rule match", "expected": "https://example.com 읽어와 → used_ai=False"},
+    {"case": "Complex request with 3 verbs routes to AI", "expected": "크롤링하고 요약해서 보내줘 → is_complex=True"},
+    {"case": "Simple time request stays rule", "expected": "현재 시간 알려줘 → is_complex=False"},
+    {"case": "Schedule + action detected as complex", "expected": "매일 9시에 뉴스 크롤링하고 요약해줘 → is_complex=True"},
+    {"case": "Single calendar add not complex", "expected": "내일 3시 회의 추가해줘 → is_complex=False"},
+    {"case": "count_action_verbs returns correct count", "expected": "크롤링하고 요약해서 보내줘 → 3 verbs"},
+    {"case": "Fallback without kiwipiepy still detects complex via connectives", "expected": "크롤링하고 요약해서 → is_complex=True even without kiwipiepy"}
+  ],
+  "constraints": [
+    "complexity.py provides: count_action_verbs(command) -> int and is_complex_request(command) -> bool",
+    "Use kiwipiepy morphological analysis: count tokens with POS tags VV, VX, XSV (Korean verb tags)",
+    "Threshold: 2+ action verbs = complex request",
+    "If kiwipiepy not installed, fall back to counting Korean connective endings (고, 서, 면, 후) between clauses",
+    "In router.py: if is_complex_request(command) and has_api_key(), skip rule match and go to AI plan",
+    "Do not modify normalizer.py or plugins",
+    "Do not break existing tests for simple single-action commands",
+    "Import from intent.korean module where kiwipiepy usage already exists"
+  ],
+  "branch_name": "feat/multi-step-detection",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_complexity_detection -v"
+}
