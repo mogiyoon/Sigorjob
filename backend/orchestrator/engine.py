@@ -167,20 +167,38 @@ async def _execute_steps(task: Task, session=None) -> None:
         )
         tool = registry.get(step.tool)
         if tool is None:
-            error = f"tool not found: {step.tool}"
-            if session is not None:
-                await _log(task.id, "error", error, session)
-            task.status = "failed"
-            task.error = error
-            await record_task_trace(
-                task.id,
-                stage="orchestrator",
-                event="tool_missing",
-                status=task.status,
-                detail={"step_index": i + 1, "tool": step.tool},
-                session=session,
-            )
-            return
+            ai_process_tool = registry.get("ai_process")
+            if ai_process_tool is not None and step.params:
+                logger.warning(f"[{task.id}] tool '{step.tool}' not found, falling back to ai_process")
+                await record_task_trace(
+                    task.id,
+                    stage="orchestrator",
+                    event="tool_fallback_to_ai_process",
+                    status=task.status,
+                    detail={"step_index": i + 1, "original_tool": step.tool},
+                    session=session,
+                )
+                instruction = step.description or step.params.get("instruction") or f"Perform: {step.tool}"
+                text = step.params.get("text") or step.params.get("content") or step.params.get("input") or ""
+                step.params = {"text": str(text), "instruction": str(instruction)}
+                step.tool = "ai_process"
+                tool = ai_process_tool
+                task.used_ai = True
+            else:
+                error = f"tool not found: {step.tool}"
+                if session is not None:
+                    await _log(task.id, "error", error, session)
+                task.status = "failed"
+                task.error = error
+                await record_task_trace(
+                    task.id,
+                    stage="orchestrator",
+                    event="tool_missing",
+                    status=task.status,
+                    detail={"step_index": i + 1, "tool": step.tool},
+                    session=session,
+                )
+                return
 
         if session is not None:
             await _log(task.id, "info", f"step {i+1}: {step.description or step.tool}", session)
