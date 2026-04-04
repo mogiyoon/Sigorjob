@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import secrets
 import time
@@ -84,30 +86,41 @@ def get_stored_tokens(connection_id: str) -> dict[str, Any] | None:
     return _load_tokens(connection_id)
 
 
-def create_authorization_state(connection_id: str) -> str:
+def generate_pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(96).rstrip("=")
+    if len(verifier) < 43:
+        verifier = f"{verifier}{'A' * (43 - len(verifier))}"
+    verifier = verifier[:128]
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).decode("ascii").rstrip("=")
+    return verifier, challenge
+
+
+def create_authorization_state(connection_id: str, code_verifier: str | None = None) -> str:
     _prune_expired_states()
     state = secrets.token_urlsafe(32)
     now = _now()
-    _oauth_states[state] = {
+    payload: dict[str, Any] = {
         "connection_id": connection_id,
         "created_at": now,
         "expires_at": now + _STATE_TTL_SECONDS,
     }
+    if code_verifier:
+        payload["code_verifier"] = code_verifier
+    _oauth_states[state] = payload
     return state
 
 
-def consume_authorization_state(connection_id: str, state: str) -> bool:
+def consume_authorization_state(connection_id: str, state: str) -> dict[str, Any] | None:
     _prune_expired_states()
     payload = _oauth_states.get(state)
     if not payload:
-        return False
+        return None
     if payload.get("connection_id") != connection_id:
-        return False
+        return None
     if int(payload.get("expires_at", 0)) <= _now():
         _oauth_states.pop(state, None)
-        return False
-    _oauth_states.pop(state, None)
-    return True
+        return None
+    return _oauth_states.pop(state, None)
 
 
 def build_google_authorize_url(connection_id: str, scopes: list[str]) -> dict[str, Any]:
@@ -117,7 +130,8 @@ def build_google_authorize_url(connection_id: str, scopes: list[str]) -> dict[st
     if not scopes:
         return {"success": False, "data": None, "error": "oauth scopes are not configured"}
 
-    state = create_authorization_state(connection_id)
+    code_verifier, code_challenge = generate_pkce_pair()
+    state = create_authorization_state(connection_id, code_verifier)
     query = urlencode(
         {
             "client_id": client_id,
@@ -128,6 +142,8 @@ def build_google_authorize_url(connection_id: str, scopes: list[str]) -> dict[st
             "access_type": "offline",
             "include_granted_scopes": "true",
             "prompt": "consent",
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
         }
     )
     return {
@@ -169,25 +185,26 @@ async def exchange_code_for_tokens(
     connection_id: str,
     code: str,
     *,
+    code_verifier: str | None = None,
     token_url: str = _DEFAULT_TOKEN_URL,
 ) -> dict[str, Any]:
-    client_id, client_secret, redirect_uri = _google_oauth_config()
-    if not client_id or not client_secret or not redirect_uri:
+    client_id, _client_secret, redirect_uri = _google_oauth_config()
+    if not client_id or not redirect_uri:
         return {"success": False, "data": None, "error": "google oauth config is incomplete"}
     if not code.strip():
         return {"success": False, "data": None, "error": "authorization code is required"}
 
+    request_data = {
+        "code": code.strip(),
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }
+    if code_verifier:
+        request_data["code_verifier"] = code_verifier.strip()
+
     try:
-        payload = await _post_form(
-            token_url,
-            {
-                "code": code.strip(),
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "redirect_uri": redirect_uri,
-                "grant_type": "authorization_code",
-            },
-        )
+        payload = await _post_form(token_url, request_data)
     except (HTTPError, URLError, TimeoutError, ValueError) as exc:
         return {"success": False, "data": None, "error": str(exc)}
 
@@ -208,8 +225,8 @@ async def refresh_access_token(
 ) -> dict[str, Any]:
     current = _load_tokens(connection_id) or {}
     refresh_token = str(current.get("refresh_token") or "").strip()
-    client_id, client_secret, _redirect_uri = _google_oauth_config()
-    if not client_id or not client_secret:
+    client_id, _client_secret, _redirect_uri = _google_oauth_config()
+    if not client_id:
         return {"success": False, "data": None, "error": "google oauth config is incomplete"}
     if not refresh_token:
         return {"success": False, "data": None, "error": "refresh token is missing"}
@@ -219,7 +236,6 @@ async def refresh_access_token(
             token_url,
             {
                 "client_id": client_id,
-                "client_secret": client_secret,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             },

@@ -174,10 +174,15 @@ async def authorize_connection(connection_id: str):
 @router.post("/setup/connections/{connection_id}/callback")
 async def oauth_callback(connection_id: str, req: OAuthCallbackRequest):
     _get_supported_oauth_connection(connection_id)
-    if not oauth.consume_authorization_state(connection_id, req.state.strip()):
+    state_payload = oauth.consume_authorization_state(connection_id, req.state.strip())
+    if not state_payload:
         raise HTTPException(status_code=400, detail="Invalid or expired oauth state.")
 
-    result = await oauth.exchange_code_for_tokens(connection_id, req.code)
+    result = await oauth.exchange_code_for_tokens(
+        connection_id,
+        req.code,
+        code_verifier=str(state_payload.get("code_verifier") or "").strip() or None,
+    )
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"] or "Failed to exchange oauth code.")
 
