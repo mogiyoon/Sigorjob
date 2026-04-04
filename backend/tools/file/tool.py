@@ -10,7 +10,9 @@ logger = get_logger(__name__)
 
 class FileTool(BaseTool):
     name = "file"
-    description = "로컬 파일 읽기/쓰기/복사/이동/삭제"
+    description = "Read, write, copy, move, and delete local files"
+    description_ko = "로컬 파일 읽기, 쓰기, 복사, 이동, 삭제"
+    description_en = "Read, write, copy, move, and delete local files"
 
     async def run(self, params: dict) -> dict:
         operation = params.get("operation")  # read | write | copy | move | delete

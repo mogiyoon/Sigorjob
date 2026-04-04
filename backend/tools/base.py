@@ -5,6 +5,8 @@ from typing import Any
 class BaseTool(ABC):
     name: str = ""
     description: str = ""
+    description_ko: str = ""
+    description_en: str = ""
 
     @abstractmethod
     async def run(self, params: dict) -> dict[str, Any]:
@@ -14,8 +16,11 @@ class BaseTool(ABC):
         """
         ...
 
-    def schema(self) -> dict:
+    def schema(self, locale: str = "en") -> dict:
+        description = self.description_en or self.description
+        if locale == "ko":
+            description = self.description_ko or description
         return {
             "name": self.name,
-            "description": self.description,
+            "description": description,
         }

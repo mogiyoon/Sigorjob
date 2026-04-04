@@ -10,7 +10,9 @@ logger = get_logger(__name__)
 
 class CrawlerTool(BaseTool):
     name = "crawler"
-    description = "URL 크롤링 후 텍스트 추출"
+    description = "Crawl a URL and extract text"
+    description_ko = "웹 주소를 수집하고 텍스트 추출"
+    description_en = "Crawl a URL and extract text"
 
     async def run(self, params: dict) -> dict:
         url: str = params.get("url", "")

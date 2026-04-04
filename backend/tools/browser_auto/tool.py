@@ -24,7 +24,9 @@ class PlaywrightInstallError(str):
 
 class BrowserAutoTool(BaseTool):
     name = "browser_auto"
-    description = "Playwright 기반 브라우저 자동화"
+    description = "Automate browser actions"
+    description_ko = "브라우저 작업 자동화"
+    description_en = "Automate browser actions"
 
     async def run(self, params: dict) -> dict[str, Any]:
         if async_playwright is None:

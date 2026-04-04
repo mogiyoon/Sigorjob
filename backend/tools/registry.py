@@ -11,8 +11,8 @@ def get(name: str) -> BaseTool | None:
     return _registry.get(name)
 
 
-def list_tools() -> list[dict]:
-    return [t.schema() for t in _registry.values()]
+def list_tools(locale: str = "en") -> list[dict]:
+    return [t.schema(locale=locale) for t in _registry.values()]
 
 
 def load_default_tools():

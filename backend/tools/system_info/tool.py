@@ -6,7 +6,9 @@ from tools.base import BaseTool
 
 class SystemInfoTool(BaseTool):
     name = "system_info"
-    description = "현재 시스템 기본 정보를 반환"
+    description = "Return basic information about the current system"
+    description_ko = "현재 시스템 기본 정보 반환"
+    description_en = "Return basic information about the current system"
 
     async def run(self, params: dict) -> dict:
         return {

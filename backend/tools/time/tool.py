@@ -5,7 +5,9 @@ from tools.base import BaseTool
 
 class TimeTool(BaseTool):
     name = "time"
-    description = "현재 시간을 반환"
+    description = "Return the current time"
+    description_ko = "현재 시간 반환"
+    description_en = "Return the current time"
 
     async def run(self, params: dict) -> dict:
         now = datetime.now(timezone.utc)

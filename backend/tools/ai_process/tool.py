@@ -16,7 +16,9 @@ SYSTEM_PROMPT = (
 
 class AIProcessTool(BaseTool):
     name = "ai_process"
-    description = "텍스트와 지시문을 받아 범용 AI 텍스트 처리를 수행합니다."
+    description = "Process text with an instruction"
+    description_ko = "텍스트와 지시문으로 내용 처리"
+    description_en = "Process text with an instruction"
 
     async def run(self, params: dict) -> dict:
         text = str(params.get("text") or "").strip()

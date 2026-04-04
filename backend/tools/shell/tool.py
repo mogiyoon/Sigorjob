@@ -10,7 +10,9 @@ logger = get_logger(__name__)
 
 class ShellTool(BaseTool):
     name = "shell"
-    description = "허용된 쉘 명령 실행"
+    description = "Run allowed shell commands"
+    description_ko = "허용된 셸 명령 실행"
+    description_en = "Run allowed shell commands"
 
     async def run(self, params: dict) -> dict:
         command: str = params.get("command", "").strip()

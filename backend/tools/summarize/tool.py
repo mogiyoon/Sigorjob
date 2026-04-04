@@ -9,7 +9,9 @@ FALLBACK_SENTENCE_COUNT = 3
 
 class SummarizeTool(BaseTool):
     name = "summarize"
-    description = "텍스트를 AI로 요약하고, 키가 없으면 앞부분을 추출 요약합니다."
+    description = "Summarize text and fall back to extractive summarization"
+    description_ko = "텍스트 요약과 앞부분 추출 요약 제공"
+    description_en = "Summarize text and fall back to extractive summarization"
 
     def __init__(self) -> None:
         self.ai_process_tool = AIProcessTool()

@@ -9,7 +9,9 @@ from tools.base import BaseTool
 
 class MCPTool(BaseTool):
     name = "mcp"
-    description = "Configured external MCP server tools"
+    description = "Call configured external server tools"
+    description_ko = "설정된 외부 서버 도구 호출"
+    description_en = "Call configured external server tools"
 
     async def run(self, params: dict) -> dict[str, Any]:
         server_name = str(params.get("server") or "").strip()

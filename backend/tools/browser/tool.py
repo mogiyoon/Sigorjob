@@ -3,7 +3,9 @@ from tools.base import BaseTool
 
 class BrowserTool(BaseTool):
     name = "browser"
-    description = "웹 URL 열기용 링크를 준비"
+    description = "Prepare a link action for opening a web URL"
+    description_ko = "웹 주소 열기 링크 준비"
+    description_en = "Prepare a link action for opening a web URL"
 
     async def run(self, params: dict) -> dict:
         url = (params.get("url") or "").strip()
