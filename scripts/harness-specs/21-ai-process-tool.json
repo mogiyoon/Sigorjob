@@ -1,0 +1,39 @@
+{
+  "id": "feat-ai-process-tool",
+  "title": "Add universal ai_process tool that handles any text processing via AI instruction",
+  "goal": "범용 AI 텍스트 처리 tool을 추가한다. text + instruction을 받아 AI가 instruction에 따라 처리 결과를 반환한다. 요약, 번역, 분석, 정리, 필터링 등 별도 tool 없이 하나로 다 처리한다. 기존 summarize tool은 ai_process의 wrapper로 대체한다.",
+  "implementation_locations": {
+    "new_files": ["backend/tools/ai_process/__init__.py", "backend/tools/ai_process/tool.py", "backend/tests/test_ai_process_tool.py"],
+    "modified_files": ["backend/tools/registry.py", "backend/tools/summarize/tool.py"]
+  },
+  "test_requirements": [
+    {"case": "ai_process with summarize instruction", "expected": "success=True, data.result contains summarized text"},
+    {"case": "ai_process with translate instruction", "expected": "success=True, data.result contains translated text"},
+    {"case": "ai_process with custom instruction", "expected": "success=True, data.result contains processed output"},
+    {"case": "ai_process without text returns error", "expected": "success=False, error mentions missing text"},
+    {"case": "ai_process without instruction returns error", "expected": "success=False, error mentions missing instruction"},
+    {"case": "ai_process without API key returns extractive fallback", "expected": "success=True with truncated input as fallback"},
+    {"case": "ai_process truncates input over 10000 chars", "expected": "AI receives truncated text"},
+    {"case": "ai_process registered in registry", "expected": "registry.get('ai_process') returns the tool"},
+    {"case": "summarize tool delegates to ai_process", "expected": "summarize tool internally calls ai_process logic"}
+  ],
+  "constraints": [
+    "Tool name: 'ai_process'",
+    "Params: {text: string (required), instruction: string (required), language?: string (optional)}",
+    "Return: {success: true, data: {result: string, instruction: string}}",
+    "Model: claude-sonnet-4-6, max_tokens: 2048",
+    "If no API key: return first 500 chars of text with note 'AI processing unavailable'",
+    "Truncate input text to 10000 chars before sending to AI",
+    "System prompt: 'Process the given text according to the instruction. Return only the processed result.'",
+    "Refactor summarize tool to be a thin wrapper that calls ai_process with instruction='Summarize this text concisely'",
+    "Do not remove summarize from registry — keep both registered (ai_process for AI plans, summarize for backward compat)",
+    "Do not modify ai/agent.py or ai/summarizer.py",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/ai-process-tool",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_ai_process_tool -v"
+}

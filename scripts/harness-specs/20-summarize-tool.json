@@ -1,0 +1,34 @@
+{
+  "id": "feat-summarize-tool",
+  "title": "Add AI summarize tool for use in multi-step plans",
+  "goal": "AI가 멀티스텝 계획에서 '요약해줘' 스텝을 만들 수 있도록 summarize tool을 추가한다. 이전 스텝의 텍스트를 받아 AI로 요약하여 반환한다. 동적 파라미터(${steps[N].result.data.text})와 함께 사용된다.",
+  "implementation_locations": {
+    "new_files": ["backend/tools/summarize/__init__.py", "backend/tools/summarize/tool.py", "backend/tests/test_summarize_tool.py"],
+    "modified_files": ["backend/tools/registry.py"]
+  },
+  "test_requirements": [
+    {"case": "summarize tool with text param returns summary", "expected": "success=True, data.summary contains summarized text"},
+    {"case": "summarize tool without text param returns error", "expected": "success=False, error mentions missing text"},
+    {"case": "summarize tool without API key uses extractive fallback", "expected": "success=True, data.summary contains first few sentences of input"},
+    {"case": "summarize tool registered in registry", "expected": "registry.get('summarize') returns the tool"},
+    {"case": "summarize tool with language param respects language", "expected": "prompt includes requested language"},
+    {"case": "summarize tool truncates very long input", "expected": "input over 10000 chars is truncated before sending to AI"}
+  ],
+  "constraints": [
+    "Tool name: 'summarize'",
+    "Params: {text: string (required), language?: string (optional, default: auto-detect), max_length?: int (optional, default: 200)}",
+    "Return: {success: true, data: {summary: string, language: string}}",
+    "If no API key: extractive fallback — return first 3 sentences of input",
+    "Use existing ai/runtime.py get_client() and has_api_key()",
+    "Model: claude-sonnet-4-6, max_tokens: 512",
+    "Do not modify ai/summarizer.py — this is a separate tool for use in plans",
+    "Do not modify any existing tools",
+    "Existing tests must pass"
+  ],
+  "branch_name": "feat/summarize-tool",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 3,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest tests.test_summarize_tool -v"
+}
