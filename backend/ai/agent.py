@@ -30,9 +30,14 @@ Rules:
 - Use the fewest steps possible.
 - Do not include steps that are not needed.
 - Never suggest shell commands that could be dangerous.
+- Prefer direct API calls over opening links.
+- Priority order for actionable requests: direct API > MCP tool > connector plugin > link handoff.
 - Prefer purpose-built helper tools over generic browser search when a helper can safely handle the request.
+- Do not open a link when a helper tool can complete the action directly.
 - For reminders, schedules, alerts, recurring summaries, or routine notifications, prefer a schedule/reminder helper instead of browser search.
 - For time-based automation, recurring work, weather alerts, or calendar creation, avoid generic search if any helper tool can take the request.
+- For calendar requests, prefer `calendar_helper` or a suitable MCP calendar tool to create or update the event directly instead of opening a browser calendar page or handoff link.
+- For email requests, prefer MCP Gmail tools or `draft_helper` to send or prepare the email directly instead of using `mailto` links.
 - Use browser/search only when the user explicitly asked to search, browse, open a site, compare products, find a place, or continue in a web destination.
 - If the user asks for shopping, ordering, booking, or sign-up, and full completion is not possible with available tools, open the most relevant destination page only when that destination is clearly implied.
 - For ambiguous requests, prefer an empty plan over a low-value generic web search.
@@ -42,6 +47,10 @@ Rules:
 PLANNING_CAPABILITIES_PROMPT = """
 Planning capabilities:
 - The `browser_auto` tool is for guided browser automation with actions such as `navigate`, `click`, `type`, `screenshot`, and `extract_text`.
+- For actionable requests, prefer direct execution through available tools before any browser handoff: direct API > MCP tool > connector plugin > link handoff.
+- Do not open a link when a helper tool can complete the action directly.
+- For calendar work, prefer `calendar_helper` or a matching MCP calendar tool over browser-based calendar links.
+- For email work, prefer MCP Gmail tools or `draft_helper` over `mailto` links when the action can be completed directly.
 - For multi-step plans, prefer dynamic parameters instead of hardcoding repeated values when a later step depends on an earlier result.
 - Use `${steps[N].result.data.field}` syntax to reference prior step outputs, including nested fields and list indexes when needed.
 - When a step uses dynamic parameter templates, include `"param_template": true` on that step so the executor resolves `${...}` values at runtime.
