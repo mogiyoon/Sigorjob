@@ -635,9 +635,10 @@ def main():
     parser.add_argument("--rounds", type=int, default=1, help="Number of big cycles (new commands each)")
     parser.add_argument("--commands", type=int, default=10, help="Commands per big cycle")
     parser.add_argument("--max-small-cycles", type=int, default=3, help="Max fix-retry cycles per big cycle")
-    parser.add_argument("--auto-fix", action="store_true", help="Auto-generate and run fix specs")
+    parser.add_argument("--no-fix", action="store_true", help="Skip auto-fix (evaluate only)")
     parser.add_argument("--dry-run", action="store_true", help="Generate commands only, don't execute")
     args = parser.parse_args()
+    args.auto_fix = not args.no_fix
     asyncio.run(main_async(args))
 
 
