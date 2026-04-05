@@ -146,6 +146,11 @@ async def execute_commands(commands: list[dict]) -> list[dict]:
     }
     secret_data = {"google_oauth_tokens:google_calendar": '{"access_token":"fake"}'}
 
+    # Pass through the real API key so AI-first router works
+    real_api_key = secret_store.get("anthropic_api_key")
+    if real_api_key:
+        secret_data["anthropic_api_key"] = real_api_key
+
     orig = {
         "config_get": config_store.get, "config_set": config_store.set,
         "config_delete": config_store.delete, "config_all": config_store.all,
@@ -154,9 +159,6 @@ async def execute_commands(commands: list[dict]) -> list[dict]:
         "orch_session": orchestrator_engine.AsyncSessionLocal,
         "router_trace": intent_router.record_task_trace,
         "orch_trace": orchestrator_engine.record_task_trace,
-        "orch_continue": orchestrator_engine.ai_agent.continue_task,
-        "summarize": orchestrator_engine.summarizer.summarize,
-        "review": orchestrator_engine.ai_reviewer.review,
     }
 
     config_store.get = lambda key, default=None: config_data.get(key, default)
@@ -170,13 +172,9 @@ async def execute_commands(commands: list[dict]) -> list[dict]:
     await db_session.init_db()
 
     async def noop(*a, **kw): return None
-    async def fake_summarize(cmd, results, *, allow_ai=True): return "done"
 
     intent_router.record_task_trace = noop
     orchestrator_engine.record_task_trace = noop
-    orchestrator_engine.ai_agent.continue_task = noop
-    orchestrator_engine.summarizer.summarize = fake_summarize
-    orchestrator_engine.ai_reviewer.review = noop
 
     registry.load_default_tools()
     load_plugins()
@@ -240,9 +238,6 @@ async def execute_commands(commands: list[dict]) -> list[dict]:
     orchestrator_engine.AsyncSessionLocal = orig["orch_session"]
     intent_router.record_task_trace = orig["router_trace"]
     orchestrator_engine.record_task_trace = orig["orch_trace"]
-    orchestrator_engine.ai_agent.continue_task = orig["orch_continue"]
-    orchestrator_engine.summarizer.summarize = orig["summarize"]
-    orchestrator_engine.ai_reviewer.review = orig["review"]
     cal_plugin.connection_manager.execute_capability = orig["cal_execute"]
 
     return results
