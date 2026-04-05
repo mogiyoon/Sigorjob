@@ -1,14 +1,14 @@
 {
   "id": "improve-r01-fix-02",
-  "title": "Fix: 지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀장님한테 메일로 보",
-  "goal": "Command '지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀장님한테 메일로 보내줘' failed with: The workflow failed due to a shell/date substitution error and neither summarized the meeting notes nor sent the email.. Suggestion: Resolve the date filtering safely without shell interpolation bugs, locate candidate meeting-note files, summarize the selected file, and then send the email after confirming or inferring the manager's address.",
+  "title": "Fix: 요즘 핫한 뉴스 3개만 요약해서 알려줘",
+  "goal": "Command '요즘 핫한 뉴스 3개만 요약해서 알려줘' failed with: The news request failed entirely with a missing-text error and gave the user no summaries at all.. Suggestion: Fetch current news headlines from a reliable news source, summarize three items directly, and only use AI after the retrieval step succeeds.",
   "implementation_locations": {
     "new_files": [],
     "modified_files": []
   },
   "test_requirements": [
     {
-      "case": "route and execute '지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀...'",
+      "case": "route and execute '요즘 핫한 뉴스 3개만 요약해서 알려줘...'",
       "expected": "status=done, no error"
     }
   ],

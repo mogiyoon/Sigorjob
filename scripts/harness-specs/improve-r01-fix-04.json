@@ -1,0 +1,25 @@
+{
+  "id": "improve-r01-fix-04",
+  "title": "Fix: Search for the latest AI news and summar",
+  "goal": "Command 'Search for the latest AI news and summarize the top 3 stories, then draft a slack message I can share with my team' failed with: The task fully failed with an error 'content is required' and the summary contains only the error message instead of any useful output.. Suggestion: Debug the crawler or ai_process tool to ensure fetched content is properly passed downstream; add validation to surface a user-friendly fallback message if content retrieval fails.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute 'Search for the latest AI news ...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r01-fix-04",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

@@ -1,14 +1,14 @@
 {
   "id": "improve-r01-fix-01",
-  "title": "Fix: 요즘 핫한 뉴스 세 개만 요약해줘",
-  "goal": "Command '요즘 핫한 뉴스 세 개만 요약해줘' failed with: The news request failed entirely with a missing-text error and gave the user no summaries at all.. Suggestion: Fetch current news headlines from a reliable news source, summarize three items directly, and only use AI after the retrieval step succeeds.",
+  "title": "Fix: 내일 오전 9시에 팀 미팅 알림 설정해줘, 아 그리고 회의실 예약도 확인",
+  "goal": "Command '내일 오전 9시에 팀 미팅 알림 설정해줘, 아 그리고 회의실 예약도 확인해줘' failed with: Both the reminder and reservation tasks failed with a 'query is required' error, and the summary shows only the raw error message with no useful response.. Suggestion: Ensure required query parameters are properly passed to reminder_helper and reservation_helper before invoking them, and return a user-friendly error message if they fail.",
   "implementation_locations": {
     "new_files": [],
     "modified_files": []
   },
   "test_requirements": [
     {
-      "case": "route and execute '요즘 핫한 뉴스 세 개만 요약해줘...'",
+      "case": "route and execute '내일 오전 9시에 팀 미팅 알림 설정해줘, 아 그리고 ...'",
       "expected": "status=done, no error"
     }
   ],

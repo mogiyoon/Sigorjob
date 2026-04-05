@@ -1,14 +1,14 @@
 {
   "id": "improve-r01-fix-03",
-  "title": "Fix: 지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀장님한테 메일로 보",
-  "goal": "Command '지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀장님한테 메일로 보내줘' failed with: The workflow failed due to a shell/date substitution error and neither summarized the meeting notes nor sent the email.. Suggestion: Resolve the date filtering safely without shell interpolation bugs, locate candidate meeting-note files, summarize the selected file, and then send the email after confirming or inferring the manager's address.",
+  "title": "Fix: 이 이메일 초안 좀 써줘 - 거래처한테 미팅 일정 다음주로 미뤄달라고 정",
+  "goal": "Command '이 이메일 초안 좀 써줘 - 거래처한테 미팅 일정 다음주로 미뤄달라고 정중하게... 근데 너무 딱딱하지 않게' failed with: The workflow failed due to a shell/date substitution error and neither summarized the meeting notes nor sent the email.. Suggestion: Resolve the date filtering safely without shell interpolation bugs, locate candidate meeting-note files, summarize the selected file, and then send the email after confirming or inferring the manager's address.",
   "implementation_locations": {
     "new_files": [],
     "modified_files": []
   },
   "test_requirements": [
     {
-      "case": "route and execute '지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀...'",
+      "case": "route and execute '이 이메일 초안 좀 써줘 - 거래처한테 미팅 일정 다음...'",
       "expected": "status=done, no error"
     }
   ],
