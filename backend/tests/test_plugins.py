@@ -167,6 +167,13 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
         task = await intent_router.route("성수에서 강남역까지 길찾아줘")
         self.assertEqual(task.steps[0].tool, "route_helper")
 
+    async def test_reservation_helper_discovery_mode_returns_local_search_link(self):
+        tool = get("reservation_helper")
+        result = await tool.run({"query": "근처 파스타 맛집 주차 가능", "mode": "discovery"})
+        self.assertTrue(result["success"])
+        self.assertIn("map.naver.com/p/search", result["data"]["url"])
+        self.assertIn("근처 파스타 맛집 주차 가능", result["data"]["title"])
+
     async def test_communication_helper_plugin_route(self):
         task = await intent_router.route("010-1234-5678로 전화해줘")
         self.assertEqual(task.steps[0].tool, "communication_helper")

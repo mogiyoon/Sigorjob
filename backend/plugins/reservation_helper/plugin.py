@@ -18,6 +18,28 @@ class ReservationHelperTool(BaseTool):
         if mode == "ticket":
             query_with_suffix = f"{query} 예매"
             title = f"{query} 예매 정보 찾기"
+        elif mode == "discovery":
+            if any(keyword in query for keyword in ("호텔", "숙소", "펜션", "리조트")):
+                url = f"https://www.google.com/travel/search?q={quote_plus(query)}"
+                return {
+                    "success": True,
+                    "data": {
+                        "action": "open_url",
+                        "url": url,
+                        "title": f"{query} 찾기",
+                    },
+                    "error": None,
+                }
+            url = f"https://map.naver.com/p/search/{quote_plus(query)}"
+            return {
+                "success": True,
+                "data": {
+                    "action": "open_url",
+                    "url": url,
+                    "title": f"{query} 찾기",
+                },
+                "error": None,
+            }
         elif any(keyword in query for keyword in ("호텔", "숙소", "펜션", "리조트")):
             url = f"https://www.google.com/travel/search?q={quote_plus(query)}"
             return {

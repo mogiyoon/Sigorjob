@@ -114,6 +114,11 @@ async def route(command: str, context: dict | None = None) -> Task:
         }
         return await _route_legacy(task, normalized_command, clarification)
 
+    direct_place_intent = detect_intent(normalized_command)
+    direct_place_step = _build_place_search_step(direct_place_intent)
+    if direct_place_step is not None:
+        return await _complete_direct_route(task, normalized_command, direct_place_step)
+
     if not has_api_key():
         return await _route_legacy(task, normalized_command, clarification)
 
@@ -385,6 +390,21 @@ def _build_steps_from_plan(plan: dict) -> list[Step]:
             )
         )
     return built_steps
+
+
+def _build_place_search_step(intent) -> Step | None:
+    if intent is None or intent.description != "place_search":
+        return None
+
+    query = str(intent.params.get("query") or "").strip()
+    if not query:
+        return None
+
+    return Step(
+        tool="reservation_helper",
+        params={"query": query, "mode": "discovery"},
+        description="place_search_local_helper",
+    )
 
 
 def _build_clarification_context(command: str, context: dict) -> dict:

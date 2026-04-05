@@ -1,0 +1,25 @@
+{
+  "id": "improve-r02-fix-04",
+  "title": "Fix: 근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로",
+  "goal": "Command '근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로' failed with: Finding nearby locations requires user's current location which was not obtained, and 'browser' is a generic tool rather than a maps/local search tool, making the result unreliable.. Suggestion: Request user's location first, then use a maps or local search tool (e.g., maps_search) to find nearby pasta restaurants with parking.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute '근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r02-fix-04",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

@@ -136,9 +136,18 @@ class IntentNormalizerTests(unittest.TestCase):
         self.assertIsNotNone(intent)
         assert intent is not None
         self.assertEqual(intent.category, "open_url")
+        self.assertEqual(intent.params["query"], "성수 카페")
         decoded_url = unquote_plus(intent.params["url"])
         self.assertIn("google.com/maps/search", decoded_url)
         self.assertIn("성수 카페", decoded_url)
+
+    def test_detect_place_search_intent_normalizes_local_filters(self):
+        intent = detect_intent("근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로")
+        self.assertIsNotNone(intent)
+        assert intent is not None
+        self.assertEqual(intent.params["query"], "근처 파스타 맛집 주차 가능")
+        decoded_url = unquote_plus(intent.params["url"])
+        self.assertIn("근처 파스타 맛집 주차 가능", decoded_url)
 
     def test_detect_naver_map_search_intent(self):
         intent = detect_intent("네이버 지도에서 강남 맛집 찾아줘")
@@ -223,10 +232,9 @@ class IntentRouterFallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_route_place_search_request_creates_browser_step(self):
         task = await intent_router.route("성수 카페 추천해줘")
         self.assertEqual(len(task.steps), 1)
-        self.assertEqual(task.steps[0].tool, "browser")
-        decoded_url = unquote_plus(task.steps[0].params["url"])
-        self.assertIn("google.com/maps/search", decoded_url)
-        self.assertIn("성수 카페", decoded_url)
+        self.assertEqual(task.steps[0].tool, "reservation_helper")
+        self.assertEqual(task.steps[0].params["query"], "성수 카페")
+        self.assertEqual(task.steps[0].params["mode"], "discovery")
 
     async def test_route_email_send_request_creates_browser_step(self):
         task = await intent_router.route("mogiyoon@gmail.com으로 메일 보내줘")
