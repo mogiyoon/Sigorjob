@@ -1,0 +1,25 @@
+{
+  "id": "improve-r02-fix-03",
+  "title": "Fix: ㅋㅋ 재밌는 아재개그 하나만 해봐",
+  "goal": "Command 'ㅋㅋ 재밌는 아재개그 하나만 해봐' failed with: This was a simple conversational request that should have been answered directly without any tool use.. Suggestion: Return a short, playful dad joke directly as a no-tool response.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute 'ㅋㅋ 재밌는 아재개그 하나만 해봐...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r02-fix-03",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

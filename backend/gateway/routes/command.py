@@ -88,6 +88,23 @@ async def command(req: CommandRequest):
             },
         )
 
+    if task.status == "done" and not task.steps:
+        task.completed_at = datetime.now(timezone.utc)
+        await orchestrator.save_pending(task)
+        await record_task_trace(
+            task.id,
+            stage="command",
+            event="direct_response_returned",
+            status="done",
+            detail={"has_summary": bool(task.summary)},
+        )
+        return TaskResponse(
+            task_id=task.id,
+            command=task.command or req.text,
+            status="done",
+            result={"summary": task.summary, "results": [], **task.result_data},
+        )
+
     if not task.steps:
         task.status = "failed"
         if not task.summary:

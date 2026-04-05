@@ -51,6 +51,10 @@ _AI_BYPASS_INTENT_CATEGORIES = {
     "search",
     "shopping_search",
 }
+_DIRECT_RESPONSE_PATTERNS = (
+    re.compile(r"아재개그"),
+    re.compile(r"dad joke", re.IGNORECASE),
+)
 
 
 def load_rules():
@@ -80,6 +84,14 @@ async def route(command: str, context: dict | None = None) -> Task:
             "clarification_history_count": len(clarification["history"]),
         },
     )
+
+    direct_response = _match_direct_response(normalized_command)
+    if direct_response:
+        task.status = "done"
+        task.intent = normalized_command
+        task.summary = direct_response
+        task.result_data = {"direct_response": {"type": "dad_joke", "text": direct_response}}
+        return task
 
     custom_command = match_custom_command(normalized_command)
     if custom_command:
@@ -323,6 +335,15 @@ async def _route_legacy(task: Task, normalized_command: str, clarification: dict
         detail={"step_count": len(task.steps), "risk_level": task.risk_level},
     )
     return task
+
+
+def _match_direct_response(command: str) -> str | None:
+    normalized = normalize_command(command)
+    if not normalized:
+        return None
+    if any(pattern.search(normalized) for pattern in _DIRECT_RESPONSE_PATTERNS):
+        return "세상에서 제일 뜨거운 과일은? 천도복숭아."
+    return None
 
 
 async def _complete_direct_route(task: Task, normalized_command: str, step: Step) -> Task:

@@ -161,6 +161,21 @@ class AIFirstRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.steps[0].tool, "time")
         self.assertFalse(task.used_ai)
 
+    async def test_dad_joke_request_returns_direct_response_without_ai(self):
+        intent_router.has_api_key = lambda: True
+
+        async def fail_if_called(command: str):
+            raise AssertionError("AI plan should not run for a direct conversational response")
+
+        intent_router.ai_agent.plan = fail_if_called
+
+        task = await intent_router.route("ㅋㅋ 재밌는 아재개그 하나만 해봐")
+
+        self.assertEqual(task.status, "done")
+        self.assertEqual(task.steps, [])
+        self.assertIn("천도복숭아", task.summary)
+        self.assertFalse(task.used_ai)
+
     async def test_ai_plan_preserves_param_template_steps(self):
         intent_router.has_api_key = lambda: True
 

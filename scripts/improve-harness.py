@@ -508,8 +508,9 @@ Respond ONLY with a JSON array."""
 # ---------------------------------------------------------------------------
 
 async def run_small_cycle(commands: list[dict], round_num: int, cycle_num: int,
-                          auto_fix: bool, max_small_cycles: int) -> dict:
-    """Small cycle: execute → evaluate → fix → regression → re-execute until pass."""
+                          auto_fix: bool, max_small_cycles: int,
+                          evaluator: str = "both") -> dict:
+    """Small cycle: execute �� evaluate → fix → regression → re-execute until pass."""
     print(f"\n  --- Small cycle {cycle_num}/{max_small_cycles} ---")
 
     # Execute
@@ -519,9 +520,16 @@ async def run_small_cycle(commands: list[dict], round_num: int, cycle_num: int,
     failed = sum(1 for r in results if r["status"] in ("failed", "crash"))
     print(f"    Done: {done}  Failed: {failed}  Other: {len(results)-done-failed}")
 
-    # Dual evaluate
-    print(f"    Dual evaluation (Claude + Codex)...")
-    evaluations = await evaluate_dual(commands, results)
+    # Evaluate based on --evaluator option
+    if evaluator == "both":
+        print(f"    Dual evaluation (Claude + Codex)...")
+        evaluations = await evaluate_dual(commands, results)
+    elif evaluator == "codex":
+        print(f"    Codex evaluation...")
+        evaluations = await evaluate_results(commands, results)
+    else:
+        print(f"    Claude evaluation...")
+        evaluations = await _evaluate_claude(commands, results)
     good = sum(1 for e in evaluations if e["grade"] == "good")
     partial = sum(1 for e in evaluations if e["grade"] == "partial")
     bad = sum(1 for e in evaluations if e["grade"] == "bad")
@@ -562,7 +570,8 @@ async def run_small_cycle(commands: list[dict], round_num: int, cycle_num: int,
 
 
 async def run_big_cycle(round_num: int, num_commands: int, dry_run: bool,
-                        auto_fix: bool, max_small_cycles: int) -> dict:
+                        auto_fix: bool, max_small_cycles: int,
+                        evaluator: str = "both") -> dict:
     """Big cycle: generate commands → small cycles until all pass or max reached."""
     print(f"\n{'='*60}")
     print(f"  BIG CYCLE {round_num}")
@@ -582,7 +591,7 @@ async def run_big_cycle(round_num: int, num_commands: int, dry_run: bool,
     # Small cycles — re-run same commands until pass
     small_results = []
     for cycle_num in range(1, max_small_cycles + 1):
-        result = await run_small_cycle(commands, round_num, cycle_num, auto_fix, max_small_cycles)
+        result = await run_small_cycle(commands, round_num, cycle_num, auto_fix, max_small_cycles, evaluator)
         small_results.append(result)
 
         if result["bad"] == 0:
@@ -621,7 +630,7 @@ async def run_big_cycle(round_num: int, num_commands: int, dry_run: bool,
 async def main_async(args):
     for round_num in range(1, args.rounds + 1):
         await run_big_cycle(round_num, args.commands, args.dry_run,
-                            args.auto_fix, args.max_small_cycles)
+                            args.auto_fix, args.max_small_cycles, args.evaluator)
         if args.dry_run:
             break
 
@@ -637,6 +646,8 @@ def main():
     parser.add_argument("--max-small-cycles", type=int, default=3, help="Max fix-retry cycles per big cycle")
     parser.add_argument("--no-fix", action="store_true", help="Skip auto-fix (evaluate only)")
     parser.add_argument("--dry-run", action="store_true", help="Generate commands only, don't execute")
+    parser.add_argument("--evaluator", default="both", choices=["both", "codex", "claude"],
+                        help="Who evaluates: both (default), codex only, claude only")
     args = parser.parse_args()
     args.auto_fix = not args.no_fix
     asyncio.run(main_async(args))

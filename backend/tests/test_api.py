@@ -151,6 +151,18 @@ class ApiFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deleted.status_code, 200)
         self.assertTrue(deleted.json()["success"])
 
+    async def test_dad_joke_command_returns_direct_done_response(self):
+        response = await self.client.post(
+            "/command",
+            json={"text": "ㅋㅋ 재밌는 아재개그 하나만 해봐", "context": {}},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "done")
+        self.assertIn("summary", payload["result"])
+        self.assertIn("천도복숭아", payload["result"]["summary"])
+        self.assertEqual(payload["result"]["direct_response"]["type"], "dad_joke")
+
 
 if __name__ == "__main__":
     unittest.main()
