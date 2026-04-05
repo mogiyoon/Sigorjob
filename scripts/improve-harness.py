@@ -411,36 +411,117 @@ def run_regression() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Main loop
+# Dual evaluation — Claude Opus + Codex, conservative merge
 # ---------------------------------------------------------------------------
 
-async def run_round(round_num: int, num_commands: int, dry_run: bool, auto_fix: bool) -> dict:
-    print(f"\n{'='*60}")
-    print(f"  ROUND {round_num}")
-    print(f"{'='*60}")
+async def evaluate_dual(commands: list[dict], results: list[dict]) -> list[dict]:
+    """Both Claude and Codex evaluate. If either says bad, it's bad."""
+    print("    Codex evaluating...")
+    codex_evals = await evaluate_results(commands, results)  # Codex via CLI
 
-    # 1. Generate commands
-    print(f"\n  [1/5] Generating {num_commands} user commands...")
-    commands = await generate_commands(num_commands)
-    if dry_run:
-        for cmd in commands:
-            print(f"    {cmd['id']}: [{cmd.get('difficulty','?')}] {cmd['command']}")
-        return {"round": round_num, "status": "dry_run", "commands": len(commands)}
+    print("    Claude evaluating...")
+    claude_evals = await _evaluate_claude(commands, results)  # Claude via API
 
-    for cmd in commands:
-        print(f"    {cmd['id']}: {cmd['command'][:50]}")
+    merged = []
+    for i, cmd in enumerate(commands):
+        codex_ev = codex_evals[i] if i < len(codex_evals) else _heuristic_eval(cmd, results[i])
+        claude_ev = claude_evals[i] if i < len(claude_evals) else _heuristic_eval(cmd, results[i])
 
-    # 2. Execute
-    print(f"\n  [2/5] Executing {len(commands)} commands...")
+        # Conservative merge: worst grade wins
+        grade_order = {"bad": 0, "partial": 1, "good": 2}
+        codex_grade = codex_ev.get("grade", "bad")
+        claude_grade = claude_ev.get("grade", "bad")
+
+        if grade_order.get(codex_grade, 0) <= grade_order.get(claude_grade, 0):
+            final = codex_ev.copy()
+        else:
+            final = claude_ev.copy()
+
+        final["codex_grade"] = codex_grade
+        final["claude_grade"] = claude_grade
+        final["id"] = cmd["id"]
+        final["command"] = cmd["command"]
+        # Use fix_suggestion from whichever said bad
+        if codex_grade == "bad" and codex_ev.get("fix_suggestion"):
+            final["fix_suggestion"] = codex_ev["fix_suggestion"]
+        elif claude_grade == "bad" and claude_ev.get("fix_suggestion"):
+            final["fix_suggestion"] = claude_ev["fix_suggestion"]
+        merged.append(final)
+
+    return merged
+
+
+async def _evaluate_claude(commands: list[dict], results: list[dict]) -> list[dict]:
+    """Claude API evaluation."""
+    from ai.runtime import get_client, has_api_key
+
+    if not has_api_key():
+        return [_heuristic_eval(cmd, res) for cmd, res in zip(commands, results)]
+
+    client = get_client()
+    if client is None:
+        return [_heuristic_eval(cmd, res) for cmd, res in zip(commands, results)]
+
+    evaluations = []
+    for i in range(0, len(commands), 5):
+        batch_cmds = commands[i:i+5]
+        batch_res = results[i:i+5]
+        items = [{"command": c["command"], "status": r["status"], "tools": r.get("tools_used", []),
+                  "error": r.get("error"), "summary": r.get("summary", "")}
+                 for c, r in zip(batch_cmds, batch_res)]
+
+        prompt = f"""Evaluate these AI assistant results. For each, give:
+- grade: "good" / "partial" / "bad"
+- reason: one sentence
+- fix_suggestion: what to fix (null if good)
+
+{json.dumps(items, ensure_ascii=False, indent=2)}
+
+Respond ONLY with a JSON array."""
+
+        try:
+            msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=1024,
+                                         messages=[{"role": "user", "content": prompt}])
+            text = msg.content[0].text.strip()
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            start = text.find("[")
+            end = text.rfind("]")
+            if start >= 0 and end > start:
+                text = text[start:end+1]
+            batch_evals = json.loads(text)
+            for j, ev in enumerate(batch_evals):
+                ev["id"] = batch_cmds[j]["id"]
+                ev["command"] = batch_cmds[j]["command"]
+                evaluations.append(ev)
+        except Exception as e:
+            for c, r in zip(batch_cmds, batch_res):
+                evaluations.append(_heuristic_eval(c, r))
+
+    return evaluations
+
+
+# ---------------------------------------------------------------------------
+# Main loop — big cycle + small cycle
+# ---------------------------------------------------------------------------
+
+async def run_small_cycle(commands: list[dict], round_num: int, cycle_num: int,
+                          auto_fix: bool, max_small_cycles: int) -> dict:
+    """Small cycle: execute → evaluate → fix → regression → re-execute until pass."""
+    print(f"\n  --- Small cycle {cycle_num}/{max_small_cycles} ---")
+
+    # Execute
+    print(f"    Executing {len(commands)} commands...")
     results = await execute_commands(commands)
     done = sum(1 for r in results if r["status"] == "done")
     failed = sum(1 for r in results if r["status"] in ("failed", "crash"))
-    other = len(results) - done - failed
-    print(f"    Done: {done}  Failed: {failed}  Other: {other}")
+    print(f"    Done: {done}  Failed: {failed}  Other: {len(results)-done-failed}")
 
-    # 3. Evaluate
-    print(f"\n  [3/5] Evaluating results...")
-    evaluations = await evaluate_results(commands, results)
+    # Dual evaluate
+    print(f"    Dual evaluation (Claude + Codex)...")
+    evaluations = await evaluate_dual(commands, results)
     good = sum(1 for e in evaluations if e["grade"] == "good")
     partial = sum(1 for e in evaluations if e["grade"] == "partial")
     bad = sum(1 for e in evaluations if e["grade"] == "bad")
@@ -448,29 +529,73 @@ async def run_round(round_num: int, num_commands: int, dry_run: bool, auto_fix: 
 
     for ev in evaluations:
         icon = {"good": "✓", "partial": "△", "bad": "✗"}.get(ev["grade"], "?")
-        print(f"    {icon} {ev['id']}: {ev['reason'][:60]}")
+        c_icon = {"good": "✓", "partial": "△", "bad": "✗"}.get(ev.get("claude_grade", "?"), "?")
+        x_icon = {"good": "✓", "partial": "△", "bad": "✗"}.get(ev.get("codex_grade", "?"), "?")
+        print(f"    {icon} {ev['id']}: Claude={c_icon} Codex={x_icon} {ev.get('reason','')[:50]}")
 
-    # 4. Fix (if auto_fix)
+    # If all good or no auto-fix, stop
+    if bad == 0 or not auto_fix:
+        return {"cycle": cycle_num, "good": good, "partial": partial, "bad": bad,
+                "evaluations": evaluations, "results": results, "fixed": False}
+
+    # Fix
+    print(f"    Fixing {bad} failures...")
+    specs = generate_fix_specs(evaluations, results, round_num)
     fix_results = []
-    if auto_fix and bad > 0:
-        print(f"\n  [4/5] Generating fixes for {bad} failures...")
-        specs = generate_fix_specs(evaluations, results, round_num)
-        for spec in specs:
-            spec_path = SPECS_DIR / f"{spec['id']}.json"
-            with open(spec_path, "w") as f:
-                json.dump(spec, f, indent=2, ensure_ascii=False)
-            print(f"    Running dev-harness: {spec['id']}...")
-            fix_result = run_dev_harness(str(spec_path))
-            fix_results.append({"spec_id": spec["id"], "exit_code": fix_result["exit_code"]})
-            status = "done" if fix_result["exit_code"] == 0 else "failed"
-            print(f"    → {status}")
-    else:
-        print(f"\n  [4/5] {'No fixes needed' if bad == 0 else 'Auto-fix disabled (use --auto-fix)'}")
+    for spec in specs:
+        spec_path = SPECS_DIR / f"{spec['id']}.json"
+        with open(spec_path, "w") as f:
+            json.dump(spec, f, indent=2, ensure_ascii=False)
+        fix_result = run_dev_harness(str(spec_path))
+        fix_results.append({"spec_id": spec["id"], "exit_code": fix_result["exit_code"]})
+        status = "✓" if fix_result["exit_code"] == 0 else "✗"
+        print(f"      {status} {spec['id']}")
 
-    # 5. Regression
-    print(f"\n  [5/5] Running regression check...")
+    # Regression
+    print(f"    Regression check...")
     regression = run_regression()
-    print(f"    Regression pass rate: {regression['pass_rate']}")
+    print(f"    Regression: {regression['pass_rate']}")
+
+    return {"cycle": cycle_num, "good": good, "partial": partial, "bad": bad,
+            "evaluations": evaluations, "results": results, "fixed": True,
+            "fix_results": fix_results, "regression": regression["pass_rate"]}
+
+
+async def run_big_cycle(round_num: int, num_commands: int, dry_run: bool,
+                        auto_fix: bool, max_small_cycles: int) -> dict:
+    """Big cycle: generate commands → small cycles until all pass or max reached."""
+    print(f"\n{'='*60}")
+    print(f"  BIG CYCLE {round_num}")
+    print(f"{'='*60}")
+
+    # Generate commands (once per big cycle)
+    print(f"\n  Generating {num_commands} user commands...")
+    commands = await generate_commands(num_commands)
+    if dry_run:
+        for cmd in commands:
+            print(f"    {cmd['id']}: [{cmd.get('difficulty','?')}] {cmd['command']}")
+        return {"round": round_num, "status": "dry_run"}
+
+    for cmd in commands:
+        print(f"    {cmd['id']}: {cmd['command'][:50]}")
+
+    # Small cycles — re-run same commands until pass
+    small_results = []
+    for cycle_num in range(1, max_small_cycles + 1):
+        result = await run_small_cycle(commands, round_num, cycle_num, auto_fix, max_small_cycles)
+        small_results.append(result)
+
+        if result["bad"] == 0:
+            print(f"\n  All commands pass after {cycle_num} cycle(s)!")
+            break
+        if not result.get("fixed"):
+            print(f"\n  {result['bad']} failures remain (auto-fix {'disabled' if not auto_fix else 'exhausted'})")
+            break
+
+    # Final score
+    last = small_results[-1]
+    total = last["good"] + last["partial"] + last["bad"]
+    score = last["good"]
 
     # Save report
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -478,42 +603,38 @@ async def run_round(round_num: int, num_commands: int, dry_run: bool, auto_fix: 
     report = {
         "round": round_num,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "commands_generated": len(commands),
-        "execution": {"done": done, "failed": failed, "other": other},
-        "evaluation": {"good": good, "partial": partial, "bad": bad},
-        "fixes_attempted": len(fix_results),
-        "fixes_succeeded": sum(1 for f in fix_results if f["exit_code"] == 0),
-        "regression_pass_rate": regression["pass_rate"],
         "commands": commands,
-        "results": results,
-        "evaluations": evaluations,
-        "fix_results": fix_results,
+        "small_cycles": small_results,
+        "final_score": f"{score}/{total}",
     }
     report_path = RESULTS_DIR / f"improve-round-{round_num:02d}-{ts}.json"
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
     print(f"\n  Report: {report_path}")
-    print(f"  Score: {good}/{len(commands)} good ({good/max(len(commands),1)*100:.0f}%)")
+    print(f"  Final score: {score}/{total} good ({score/max(total,1)*100:.0f}%)")
+    print(f"  Small cycles used: {len(small_results)}")
 
     return report
 
 
 async def main_async(args):
     for round_num in range(1, args.rounds + 1):
-        report = await run_round(round_num, args.commands, args.dry_run, args.auto_fix)
+        await run_big_cycle(round_num, args.commands, args.dry_run,
+                            args.auto_fix, args.max_small_cycles)
         if args.dry_run:
             break
 
     print(f"\n{'='*60}")
-    print(f"  IMPROVE HARNESS COMPLETE — {args.rounds} round(s)")
+    print(f"  IMPROVE HARNESS COMPLETE — {args.rounds} big cycle(s)")
     print(f"{'='*60}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Improve harness — AI discovers and fixes product gaps")
-    parser.add_argument("--rounds", type=int, default=1, help="Number of improvement rounds")
-    parser.add_argument("--commands", type=int, default=10, help="Commands per round")
+    parser.add_argument("--rounds", type=int, default=1, help="Number of big cycles (new commands each)")
+    parser.add_argument("--commands", type=int, default=10, help="Commands per big cycle")
+    parser.add_argument("--max-small-cycles", type=int, default=3, help="Max fix-retry cycles per big cycle")
     parser.add_argument("--auto-fix", action="store_true", help="Auto-generate and run fix specs")
     parser.add_argument("--dry-run", action="store_true", help="Generate commands only, don't execute")
     args = parser.parse_args()
