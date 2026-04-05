@@ -12,6 +12,8 @@ import TaskCard from "@/components/TaskCard";
 import {
   ApprovalItem,
   approveTask,
+  authorizeConnection,
+  callbackConnection,
   continueTaskWithAi,
   ConnectionItem,
   deleteTask,
@@ -19,6 +21,7 @@ import {
   getBaseUrl,
   getSetupStatus,
   getTask,
+  installPlaywright,
   listApprovals,
   listSchedules,
   listTasks,
@@ -46,6 +49,7 @@ interface SetupPromptState {
   connectionName: string;
   setupMessage: string;
   fallbackAvailable: boolean;
+  setupAction: "oauth" | "permission" | "mcp_install" | "install_playwright" | "unknown";
 }
 
 function CircleIconButton({
@@ -203,7 +207,7 @@ export default function Home() {
     const result = (task.result ?? {}) as {
       setup_message?: unknown;
       fallback_available?: unknown;
-      setup_action?: { connection_id?: unknown } | null;
+      setup_action?: { connection_id?: unknown; action?: unknown } | null;
     };
     const setupMessage =
       typeof result.setup_message === "string" && result.setup_message.trim()
@@ -219,12 +223,21 @@ export default function Home() {
       ? connections.find((connection) => connection.id === connectionId)
       : null;
 
+    const rawAction = typeof result.setup_action?.action === "string" ? result.setup_action.action : "";
+    const setupAction: SetupPromptState["setupAction"] =
+      rawAction === "install_playwright" ? "install_playwright"
+      : rawAction === "oauth" ? "oauth"
+      : rawAction === "permission" ? "permission"
+      : rawAction === "mcp_install" ? "mcp_install"
+      : "unknown";
+
     return {
       taskId: task.task_id,
       connectionId,
       connectionName: matchedConnection?.title || connectionId || t("settings"),
       setupMessage,
       fallbackAvailable: Boolean(result.fallback_available),
+      setupAction,
     };
   };
 
@@ -390,17 +403,83 @@ export default function Home() {
     }
   };
 
-  const handleOpenSetup = () => {
+  const handleOpenSetup = async () => {
     if (!setupPrompt) return;
     setSetupActionLoading("connect");
-    const query = new URLSearchParams();
-    if (setupPrompt.connectionId) {
-      query.set("connection_id", setupPrompt.connectionId);
-      query.set("highlight", setupPrompt.connectionId);
+
+    try {
+      if (setupPrompt.setupAction === "install_playwright") {
+        const result = await installPlaywright();
+        if (result.success) {
+          // Playwright installed — retry the original task
+          setRetryingTaskId(setupPrompt.taskId);
+          const retried = await retryTask(setupPrompt.taskId);
+          setSetupPrompt(null);
+          upsertTask(retried);
+          const final = await pollTaskUntilSettled(retried.task_id);
+          upsertTask(final);
+          await refreshDashboard();
+          setRetryingTaskId(null);
+        } else {
+          setSubmitError(result.error || "Playwright 설치에 실패했습니다.");
+          setSetupPrompt(null);
+        }
+        return;
+      }
+
+      if (setupPrompt.setupAction === "oauth" && setupPrompt.connectionId) {
+        const { auth_url } = await authorizeConnection(setupPrompt.connectionId);
+        // Open OAuth popup
+        const popup = window.open(auth_url, "_blank", "width=600,height=700");
+        // Listen for the OAuth callback message
+        const handleOAuthMessage = async (event: MessageEvent) => {
+          if (event.data?.type !== "oauth_callback") return;
+          window.removeEventListener("message", handleOAuthMessage);
+          const { code, state } = event.data;
+          if (!code || !state || !setupPrompt.connectionId) return;
+          try {
+            await callbackConnection(setupPrompt.connectionId, { code, state });
+            // OAuth connected — retry the original task
+            setRetryingTaskId(setupPrompt.taskId);
+            const retried = await retryTask(setupPrompt.taskId);
+            setSetupPrompt(null);
+            upsertTask(retried);
+            const final = await pollTaskUntilSettled(retried.task_id);
+            upsertTask(final);
+            await refreshDashboard();
+            setRetryingTaskId(null);
+          } catch (err) {
+            console.error("OAuth callback failed:", err);
+            setSetupPrompt(null);
+          }
+        };
+        window.addEventListener("message", handleOAuthMessage);
+        // Fallback: poll for connection status if popup is blocked
+        if (!popup || popup.closed) {
+          window.removeEventListener("message", handleOAuthMessage);
+          // Fall back to opening setup page
+          const query = new URLSearchParams();
+          query.set("connection_id", setupPrompt.connectionId);
+          query.set("highlight", setupPrompt.connectionId);
+          query.set("source", "needs_setup");
+          router.push(`/setup?${query.toString()}`);
+        }
+        return;
+      }
+
+      // Default: redirect to setup page for permission/mcp_install/unknown
+      const query = new URLSearchParams();
+      if (setupPrompt.connectionId) {
+        query.set("connection_id", setupPrompt.connectionId);
+        query.set("highlight", setupPrompt.connectionId);
+      }
+      query.set("source", "needs_setup");
+      router.push(`/setup${query.toString() ? `?${query.toString()}` : ""}`);
+    } catch (err) {
+      console.error("Setup action failed:", err);
+    } finally {
+      setSetupActionLoading(null);
     }
-    query.set("source", "needs_setup");
-    router.push(`/setup${query.toString() ? `?${query.toString()}` : ""}`);
-    setSetupActionLoading(null);
   };
 
   const handleRetryWithFallback = async () => {
@@ -706,7 +785,15 @@ export default function Home() {
                 disabled={setupActionLoading !== null}
                 className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
               >
-                {setupActionLoading === "connect" ? t("connecting") : t("connect_service")}
+                {setupActionLoading === "connect"
+                  ? setupPrompt.setupAction === "install_playwright"
+                    ? t("installing", "설치 중...")
+                    : t("connecting")
+                  : setupPrompt.setupAction === "install_playwright"
+                    ? t("install_now", "지금 설치")
+                    : setupPrompt.setupAction === "oauth"
+                      ? t("connect_now", "지금 연결")
+                      : t("connect_service")}
               </button>
             </div>
           </div>

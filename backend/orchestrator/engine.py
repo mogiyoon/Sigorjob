@@ -251,6 +251,24 @@ async def _execute_steps(task: Task, session=None) -> None:
         )
 
         if not result.get("success"):
+            # Crawler HTTP/network failure → auto-fallback to browser_auto extract_text
+            if step.tool == "crawler" and step.params.get("url"):
+                fallback = _build_crawler_fallback_step(step)
+                if fallback is not None:
+                    task.steps.insert(step_index + 1, fallback)
+                    if session is not None:
+                        await _log(task.id, "info", f"step {i+1} crawler failed, auto-fallback to browser_auto", session)
+                    await record_task_trace(
+                        task.id,
+                        stage="orchestrator",
+                        event="crawler_auto_fallback",
+                        status=task.status,
+                        detail={"step_index": i + 1, "url": step.params.get("url")},
+                        session=session,
+                    )
+                    step_index += 1
+                    continue
+
             error = result.get("error", "unknown error")
             if session is not None:
                 await _log(task.id, "error", f"step {i+1} failed: {error}", session)
@@ -266,6 +284,24 @@ async def _execute_steps(task: Task, session=None) -> None:
                 session=session,
             )
             return
+
+        # Crawler quality insufficient (short text, CAPTCHA) → auto-fallback to browser_auto
+        if step.tool == "crawler" and quality.status == "insufficient" and step.params.get("url"):
+            fallback = _build_crawler_fallback_step(step)
+            if fallback is not None:
+                task.steps.insert(step_index + 1, fallback)
+                if session is not None:
+                    await _log(task.id, "info", f"step {i+1} crawler quality insufficient, auto-fallback to browser_auto", session)
+                await record_task_trace(
+                    task.id,
+                    stage="orchestrator",
+                    event="crawler_quality_fallback",
+                    status=task.status,
+                    detail={"step_index": i + 1, "url": step.params.get("url"), "quality": quality.status},
+                    session=session,
+                )
+                step_index += 1
+                continue
 
         if quality.needs_ai_review and review_budget > 0:
             review_budget -= 1
@@ -382,6 +418,18 @@ async def _execute_steps(task: Task, session=None) -> None:
     if "모바일" in task.command.lower() or "mobile" in task.command.lower():
         task.summary = f"{task.summary} 모바일 앱의 작업 목록에서도 확인할 수 있습니다.".strip()
     _maybe_enqueue_mobile_notification(task)
+
+
+def _build_crawler_fallback_step(crawler_step: Step) -> Step | None:
+    """Build a browser_auto extract_text step as fallback for a failed/insufficient crawler step."""
+    url = crawler_step.params.get("url")
+    if not url:
+        return None
+    return Step(
+        tool="browser_auto",
+        params={"action": "extract_text", "url": url, "headless": True},
+        description=f"crawler fallback: Playwright로 텍스트 추출 ({url})",
+    )
 
 
 async def _continue_with_ai_plan(

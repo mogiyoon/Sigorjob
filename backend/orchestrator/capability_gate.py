@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from typing import Any
 
 from config.store import config_store
@@ -13,6 +14,11 @@ CapabilityCheck = dict[str, Any]
 _TOOL_CAPABILITY_MAP: dict[str, tuple[str, str]] = {
     "calendar_helper": ("google_calendar", "create_calendar_event"),
 }
+
+
+def _is_playwright_available() -> bool:
+    """Check if playwright package and browsers are installed."""
+    return importlib.util.find_spec("playwright") is not None
 
 
 def check_capabilities(steps: list[Step]) -> list[CapabilityCheck]:
@@ -42,6 +48,18 @@ def check_capability(step: Step) -> CapabilityCheck:
         return {"satisfied": True}
 
     connection_id, capability_name = requirement
+
+    # Playwright is a local install, not a connection/OAuth flow
+    if connection_id == "playwright":
+        return _build_missing_result(
+            connection_id="playwright",
+            capability_name="browser_automation",
+            setup_action="install_playwright",
+            setup_message="Playwright가 설치되어 있지 않습니다. 브라우저 자동화를 사용하려면 Playwright를 설치해주세요.",
+            fallback_available=False,
+            fallback_description="",
+        )
+
     connection = get_connection(connection_id)
     granted_permissions = set(config_store.get("granted_permissions", []))
     required_permissions = set((connection or {}).get("required_permissions") or [])
@@ -109,6 +127,9 @@ def check_capability(step: Step) -> CapabilityCheck:
 def _resolve_requirement(step: Step) -> tuple[str, str] | None:
     if step.tool == "crawler":
         return None
+
+    if step.tool == "browser_auto":
+        return ("playwright", "browser_automation") if not _is_playwright_available() else None
 
     mapped = _TOOL_CAPABILITY_MAP.get(step.tool)
     if mapped is not None:

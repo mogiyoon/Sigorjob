@@ -42,11 +42,14 @@ Rules:
 - If the user asks for shopping, ordering, booking, or sign-up, and full completion is not possible with available tools, open the most relevant destination page only when that destination is clearly implied.
 - For ambiguous requests, prefer an empty plan over a low-value generic web search.
 - Return steps as [] if the best remaining action would only be a vague generic search page.
+- When fetching web content (news, weather, articles), prefer `crawler` first. If you expect the site may block simple HTTP requests (JavaScript-heavy sites, CAPTCHA-protected pages), plan a `browser_auto` step with action `extract_text` as an alternative.
+- For weather data, prefer API-style endpoints or well-known RSS feeds over scraping JS-heavy weather sites.
 """
 
 PLANNING_CAPABILITIES_PROMPT = """
 Planning capabilities:
 - The `browser_auto` tool is for guided browser automation with actions such as `navigate`, `click`, `type`, `screenshot`, and `extract_text`.
+- When `crawler` cannot extract useful content (JavaScript-heavy sites, CAPTCHA, access denied), use `browser_auto` with `action: "extract_text"` and the same URL as a fallback.
 - For actionable requests, prefer direct execution through available tools before any browser handoff: direct API > MCP tool > connector plugin > link handoff.
 - Do not open a link when a helper tool can complete the action directly.
 - For calendar work, prefer `calendar_helper` or a matching MCP calendar tool over browser-based calendar links.
@@ -56,6 +59,16 @@ Planning capabilities:
 - When a step uses dynamic parameter templates, include `"param_template": true` on that step so the executor resolves `${...}` values at runtime.
 - You may include a `condition` field on a step when it should run only if a boolean condition is true.
 - Use `condition` and dynamic parameters actively in multi-step plans to keep plans concise, data-driven, and safe.
+
+Required parameters for key tools (missing params will cause errors):
+- `ai_process`: requires `text` (input content) and `instruction` (what to do with it). For standalone AI tasks like jokes, translation, or Q&A, set `text` to the user's question and `instruction` to what you want the AI to do.
+- `summarize`: requires `text` (content to summarize).
+- `draft_helper`: requires `content` (message body text). Optional: `draft_type` ("message"/"email"), `recipient`.
+- `communication_helper`: requires `text` (message text) and `mode` ("sms"/"kakao"/"call"). Extract these from the user's request.
+- `reservation_helper`: requires `query` (search query like "강남 이탈리안 레스토랑"). Optional: `mode` ("reservation"/"search").
+- `crawler`: requires `url`. Optional: `selector` (CSS selector).
+- `browser_auto`: requires `action` ("navigate"/"extract_text"/"click"/"type"/"screenshot") and `url`.
+- `shell`: requires `command`. Never use unescaped shell substitutions like `$(date ...)` — compute dates using the `time` tool first and pass them as literal values.
 """
 
 BROWSER_ASSIST_PROMPT = """
@@ -151,6 +164,7 @@ Rules:
 - If the current result is already sufficient and no extra execution is needed, return an empty steps array and provide a useful summary.
 - For mail, message, schedule, shopping, reservation, calendar, route, or reminder flows, continue from the current result instead of restarting from scratch.
 - Never invent unsupported tools.
+- If the current result shows crawler failure (short text, CAPTCHA, access denied), use `browser_auto` with action `extract_text` and the same URL to retry fetching the content.
 """
 
 CLARIFICATION_PROMPT = """

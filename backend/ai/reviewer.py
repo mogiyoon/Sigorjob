@@ -17,6 +17,9 @@ Available tools:
 - shell: execute an allowed shell command
 - crawler: crawl a URL and extract text
 - browser: prepare a web URL for opening in the client UI
+- browser_auto: automate browser with Playwright (actions: navigate, extract_text, click, type, screenshot)
+
+When the crawler result is insufficient (short text, CAPTCHA, access denied), prefer retrying with browser_auto using action "extract_text" and the same URL.
 
 Respond ONLY with JSON in this format:
 {

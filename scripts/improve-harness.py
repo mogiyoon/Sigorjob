@@ -266,16 +266,25 @@ async def evaluate_results(commands: list[dict], results: list[dict]) -> list[di
     eval_prompt = f"""You are evaluating an AI assistant's responses to user commands.
 For each command below, grade how well the system handled it.
 
+IMPORTANT: Each evaluation must match its command by "id". The summary field contains the actual response shown to the user — base your grade primarily on whether the summary answers the user's question.
+
 Commands and results:
 {json.dumps(items, ensure_ascii=False, indent=2)}
 
 For each item, respond with:
+- id: the exact id from the input (e.g. "user_000")
 - grade: "good" (user would be satisfied), "partial" (did something but incomplete), "bad" (failed or unhelpful)
-- reason: one sentence explaining why
+- reason: one sentence explaining why, referencing the specific command
 - fix_suggestion: if grade is "bad" or "partial", what should the system do differently? null if "good"
 
+Grading rules:
+- If status is "done" and the summary contains a useful answer to the user's question, grade "good"
+- If status is "done" but the summary only provides links without actual data, grade "partial"
+- If status is "failed" or "crash", grade "bad"
+- Focus on the SUMMARY content, not just the status
+
 Respond ONLY with a JSON array:
-[{{"grade": "...", "reason": "...", "fix_suggestion": "..."}}]"""
+[{{"id": "user_000", "grade": "...", "reason": "...", "fix_suggestion": "..."}}]"""
 
     # Write prompt to temp file for Codex
     import tempfile
@@ -458,42 +467,50 @@ async def _evaluate_claude(commands: list[dict], results: list[dict]) -> list[di
         return [_heuristic_eval(cmd, res) for cmd, res in zip(commands, results)]
 
     evaluations = []
-    for i in range(0, len(commands), 5):
-        batch_cmds = commands[i:i+5]
-        batch_res = results[i:i+5]
-        items = [{"command": c["command"], "status": r["status"], "tools": r.get("tools_used", []),
-                  "error": r.get("error"), "summary": r.get("summary", "")}
-                 for c, r in zip(batch_cmds, batch_res)]
+    for cmd, res in zip(commands, results):
+        item = {
+            "command": cmd["command"],
+            "status": res["status"],
+            "tools": res.get("tools_used", []),
+            "error": res.get("error"),
+            "summary": res.get("summary", ""),
+        }
 
-        prompt = f"""Evaluate these AI assistant results. For each, give:
-- grade: "good" / "partial" / "bad"
-- reason: one sentence
-- fix_suggestion: what to fix (null if good)
+        prompt = f"""Evaluate this AI assistant result.
 
-{json.dumps(items, ensure_ascii=False, indent=2)}
+User command: {cmd["command"]}
 
-Respond ONLY with a JSON array."""
+Result:
+{json.dumps(item, ensure_ascii=False, indent=2)}
+
+Grade how well the system handled the user's request:
+- "good": user would be satisfied — the summary answers their question or completes their request
+- "partial": did something useful but incomplete — e.g. provided links but not actual data
+- "bad": failed, crashed, or gave an unhelpful response
+
+IMPORTANT: Base your grade primarily on the summary field — it contains the actual response shown to the user.
+
+Respond ONLY with a JSON object:
+{{"grade": "...", "reason": "one sentence", "fix_suggestion": "what to fix, or null if good"}}"""
 
         try:
-            msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=1024,
+            msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=256,
                                          messages=[{"role": "user", "content": prompt}])
             text = msg.content[0].text.strip()
             if "```" in text:
                 text = text.split("```")[1]
                 if text.startswith("json"):
                     text = text[4:]
-            start = text.find("[")
-            end = text.rfind("]")
+            start = text.find("{")
+            end = text.rfind("}")
             if start >= 0 and end > start:
                 text = text[start:end+1]
-            batch_evals = json.loads(text)
-            for j, ev in enumerate(batch_evals):
-                ev["id"] = batch_cmds[j]["id"]
-                ev["command"] = batch_cmds[j]["command"]
-                evaluations.append(ev)
+            ev = json.loads(text)
+            ev["id"] = cmd["id"]
+            ev["command"] = cmd["command"]
+            evaluations.append(ev)
         except Exception as e:
-            for c, r in zip(batch_cmds, batch_res):
-                evaluations.append(_heuristic_eval(c, r))
+            evaluations.append(_heuristic_eval(cmd, res))
 
     return evaluations
 

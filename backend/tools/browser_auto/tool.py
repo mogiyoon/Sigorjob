@@ -103,10 +103,16 @@ class BrowserAutoTool(BaseTool):
         except Exception as exc:
             return {"success": False, "data": None, "error": str(exc)}
         finally:
-            if context is not None:
-                await context.close()
-            if browser is not None:
-                await browser.close()
+            try:
+                if context is not None:
+                    await context.close()
+            except Exception:
+                pass
+            try:
+                if browser is not None:
+                    await browser.close()
+            except Exception:
+                pass
 
     def _is_valid_url(self, url: str) -> bool:
         parsed = urlparse(url)
