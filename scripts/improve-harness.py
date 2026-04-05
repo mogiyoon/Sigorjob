@@ -253,39 +253,23 @@ async def execute_commands(commands: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 async def evaluate_results(commands: list[dict], results: list[dict]) -> list[dict]:
-    """AI evaluates: did the system actually help the user?"""
-    from ai.runtime import get_client, has_api_key
-
+    """Codex evaluates: did the system actually help the user?"""
     evaluations = []
 
-    if not has_api_key():
-        for cmd, res in zip(commands, results):
-            evaluations.append(_heuristic_eval(cmd, res))
-        return evaluations
+    # Build evaluation payload
+    items = []
+    for cmd, res in zip(commands, results):
+        items.append({
+            "id": cmd["id"],
+            "command": cmd["command"],
+            "status": res["status"],
+            "tools": res.get("tools_used", []),
+            "error": res.get("error"),
+            "summary": res.get("summary", ""),
+        })
 
-    client = get_client()
-    if client is None:
-        for cmd, res in zip(commands, results):
-            evaluations.append(_heuristic_eval(cmd, res))
-        return evaluations
-
-    # Batch evaluate (5 at a time to save tokens)
-    for i in range(0, len(commands), 5):
-        batch_cmds = commands[i:i+5]
-        batch_res = results[i:i+5]
-
-        items = []
-        for cmd, res in zip(batch_cmds, batch_res):
-            items.append({
-                "command": cmd["command"],
-                "status": res["status"],
-                "tools": res.get("tools_used", []),
-                "error": res.get("error"),
-                "summary": res.get("summary", ""),
-            })
-
-        prompt = f"""You are evaluating an AI assistant's responses to user commands.
-For each command, grade how well the system handled it.
+    eval_prompt = f"""You are evaluating an AI assistant's responses to user commands.
+For each command below, grade how well the system handled it.
 
 Commands and results:
 {json.dumps(items, ensure_ascii=False, indent=2)}
@@ -295,29 +279,62 @@ For each item, respond with:
 - reason: one sentence explaining why
 - fix_suggestion: if grade is "bad" or "partial", what should the system do differently? null if "good"
 
-Respond with a JSON array:
-[{{"grade": "...", "reason": "...", "fix_suggestion": "..."}}]
+Respond ONLY with a JSON array:
+[{{"grade": "...", "reason": "...", "fix_suggestion": "..."}}]"""
 
-Only output the JSON array."""
+    # Write prompt to temp file for Codex
+    import tempfile
+    prompt_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+    prompt_file.write(eval_prompt)
+    prompt_file.close()
 
-        try:
-            message = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=1024,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = message.content[0].text.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-            batch_evals = json.loads(text)
-            for j, ev in enumerate(batch_evals):
-                ev["id"] = batch_cmds[j]["id"]
-                ev["command"] = batch_cmds[j]["command"]
+    output_file = str(RESULTS_DIR / "eval-codex-output.txt")
+
+    try:
+        proc = subprocess.run(
+            ["npx", "@openai/codex", "exec", "--full-auto", "--json", "--ephemeral",
+             "-o", output_file, "-"],
+            stdin=open(prompt_file.name),
+            capture_output=True, text=True, timeout=120,
+        )
+        os.unlink(prompt_file.name)
+
+        # Read Codex output
+        eval_text = ""
+        if Path(output_file).exists():
+            eval_text = Path(output_file).read_text().strip()
+        if not eval_text:
+            eval_text = proc.stdout or ""
+
+        # Extract JSON from response
+        if "```" in eval_text:
+            eval_text = eval_text.split("```")[1]
+            if eval_text.startswith("json"):
+                eval_text = eval_text[4:]
+            eval_text = eval_text.strip()
+
+        # Try to find JSON array in text
+        start = eval_text.find("[")
+        end = eval_text.rfind("]")
+        if start >= 0 and end > start:
+            eval_text = eval_text[start:end+1]
+
+        parsed = json.loads(eval_text)
+        for j, ev in enumerate(parsed):
+            if j < len(commands):
+                ev["id"] = commands[j]["id"]
+                ev["command"] = commands[j]["command"]
                 evaluations.append(ev)
-        except Exception as e:
-            print(f"  WARNING: AI evaluation failed ({e}), using heuristic")
-            for cmd, res in zip(batch_cmds, batch_res):
-                evaluations.append(_heuristic_eval(cmd, res))
+
+    except Exception as e:
+        print(f"  WARNING: Codex evaluation failed ({e}), using heuristic")
+        os.unlink(prompt_file.name) if os.path.exists(prompt_file.name) else None
+
+    # Fill remaining with heuristic
+    evaluated_ids = {e["id"] for e in evaluations}
+    for cmd, res in zip(commands, results):
+        if cmd["id"] not in evaluated_ids:
+            evaluations.append(_heuristic_eval(cmd, res))
 
     return evaluations
 
