@@ -1,0 +1,25 @@
+{
+  "id": "improve-r01-fix-02",
+  "title": "Fix: 지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀장님한테 메일로 보",
+  "goal": "Command '지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀장님한테 메일로 보내줘' failed with: The workflow failed due to a shell/date substitution error and neither summarized the meeting notes nor sent the email.. Suggestion: Resolve the date filtering safely without shell interpolation bugs, locate candidate meeting-note files, summarize the selected file, and then send the email after confirming or inferring the manager's address.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute '지난주에 저장한 회의록 파일 찾아서 요점만 정리해서 팀...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r01-fix-02",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

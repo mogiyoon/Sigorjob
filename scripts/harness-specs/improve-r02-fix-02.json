@@ -1,0 +1,25 @@
+{
+  "id": "improve-r02-fix-02",
+  "title": "Fix: 강남역 근처 분위기 좋은 이탈리안 레스토랑 추천해줘 근데 너무 비싼데 말",
+  "goal": "Command '강남역 근처 분위기 좋은 이탈리안 레스토랑 추천해줘 근데 너무 비싼데 말고' failed with: 레스토랑 추천 요청에 실제 추천 정보 없이 지도 링크 준비 안내만 제공했으며 reservation_helper는 요청과 맞지 않는 도구이다.. Suggestion: 검색 도구를 사용해 강남역 근처 합리적인 가격의 이탈리안 레스토랑 목록을 실제로 제공하고, 예약이 필요한 경우에만 reservation_helper를 활용해야 한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute '강남역 근처 분위기 좋은 이탈리안 레스토랑 추천해줘 근...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r02-fix-02",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

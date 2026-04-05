@@ -1,14 +1,14 @@
 {
   "id": "improve-r02-fix-04",
-  "title": "Fix: 근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로",
-  "goal": "Command '근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로' failed with: Finding nearby locations requires user's current location which was not obtained, and 'browser' is a generic tool rather than a maps/local search tool, making the result unreliable.. Suggestion: Request user's location first, then use a maps or local search tool (e.g., maps_search) to find nearby pasta restaurants with parking.",
+  "title": "Fix: 엄마한테 오늘 저녁에 늦는다고 문자 보내줘",
+  "goal": "Command '엄마한테 오늘 저녁에 늦는다고 문자 보내줘' failed with: The communication_helper tool was called without providing the required text and mode parameters, even though both were inferable from the user's command.. Suggestion: Set text to '오늘 저녁에 늦을 것 같아요' and mode to 'sms' (or equivalent), and resolve the recipient '엄마' from contacts before calling the tool.",
   "implementation_locations": {
     "new_files": [],
     "modified_files": []
   },
   "test_requirements": [
     {
-      "case": "route and execute '근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로...'",
+      "case": "route and execute '엄마한테 오늘 저녁에 늦는다고 문자 보내줘...'",
       "expected": "status=done, no error"
     }
   ],

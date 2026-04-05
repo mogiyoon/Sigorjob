@@ -1,0 +1,25 @@
+{
+  "id": "improve-r02-fix-01",
+  "title": "Fix: Hey set an alarm for 7:30 tomorrow morni",
+  "goal": "Command 'Hey set an alarm for 7:30 tomorrow morning' failed with: The news request failed entirely with a missing-text error and gave the user no summaries at all.. Suggestion: Fetch current news headlines from a reliable news source, summarize three items directly, and only use AI after the retrieval step succeeds.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute 'Hey set an alarm for 7:30 tomo...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r02-fix-01",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

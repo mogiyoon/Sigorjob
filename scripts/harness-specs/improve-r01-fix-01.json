@@ -1,14 +1,14 @@
 {
   "id": "improve-r01-fix-01",
-  "title": "Fix: 요즘 애플 주가 어떻게 돼? 좀 알아봐줘",
-  "goal": "Command '요즘 애플 주가 어떻게 돼? 좀 알아봐줘' failed with: 크롤러를 사용했지만 차단 페이지로 인해 애플 주가 정보를 가져오지 못하고 실패했다.. Suggestion: 차단되지 않는 금융 데이터 API나 대체 주가 조회 도구를 사용하거나 다른 금융 정보 사이트를 시도해야 한다.",
+  "title": "Fix: 요즘 핫한 뉴스 세 개만 요약해줘",
+  "goal": "Command '요즘 핫한 뉴스 세 개만 요약해줘' failed with: The news request failed entirely with a missing-text error and gave the user no summaries at all.. Suggestion: Fetch current news headlines from a reliable news source, summarize three items directly, and only use AI after the retrieval step succeeds.",
   "implementation_locations": {
     "new_files": [],
     "modified_files": []
   },
   "test_requirements": [
     {
-      "case": "route and execute '요즘 애플 주가 어떻게 돼? 좀 알아봐줘...'",
+      "case": "route and execute '요즘 핫한 뉴스 세 개만 요약해줘...'",
       "expected": "status=done, no error"
     }
   ],

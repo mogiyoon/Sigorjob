@@ -1,5 +1,5 @@
 {
-  "id": "improve-r01-fix-00",
+  "id": "improve-r02-fix-00",
   "title": "Fix: 오늘 날씨 어때? 우산 챙겨야 해?",
   "goal": "Command '오늘 날씨 어때? 우산 챙겨야 해?' failed with: The weather request failed with a parsing error and provided no useful answer about conditions or whether to bring an umbrella.. Suggestion: Use the weather pathway with the user's current location or ask for location if unavailable, then return a direct weather summary and umbrella recommendation instead of invoking generic crawl/AI steps that fail on missing text.",
   "implementation_locations": {
@@ -16,7 +16,7 @@
     "Do not break existing tests",
     "Follow AGENTS.md conventions"
   ],
-  "branch_name": "improve/r01-fix-00",
+  "branch_name": "improve/r02-fix-00",
   "base_branch": "feat/phase0-ai-capabilities",
   "max_retries": 2,
   "codex_model": "",

@@ -1,14 +1,14 @@
 {
   "id": "improve-r02-fix-03",
-  "title": "Fix: ㅋㅋ 재밌는 아재개그 하나만 해봐",
-  "goal": "Command 'ㅋㅋ 재밌는 아재개그 하나만 해봐' failed with: This was a simple conversational request that should have been answered directly without any tool use.. Suggestion: Return a short, playful dad joke directly as a no-tool response.",
+  "title": "Fix: Can you find the cheapest iPhone 16 pro ",
+  "goal": "Command 'Can you find the cheapest iPhone 16 pro available online rn and tell me if its worth buying' failed with: The task failed because the shopping_helper tool was not provided with the required text/query parameter despite the command clearly specifying the product to search for.. Suggestion: Extract the product query ('iPhone 16 Pro') from the command and pass it as the text parameter to shopping_helper, then use ai_process to evaluate the result.",
   "implementation_locations": {
     "new_files": [],
     "modified_files": []
   },
   "test_requirements": [
     {
-      "case": "route and execute 'ㅋㅋ 재밌는 아재개그 하나만 해봐...'",
+      "case": "route and execute 'Can you find the cheapest iPho...'",
       "expected": "status=done, no error"
     }
   ],
