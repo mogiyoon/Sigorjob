@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from config.secret_store import secret_store
 from config.store import config_store
 from connections.base import ConnectionExecutionResult
 from db import session as db_session
@@ -49,13 +50,18 @@ class E2ESmokeTests(unittest.IsolatedAsyncioTestCase):
         db_path = os.path.join(self.tmpdir.name, "test.db")
         self.engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
         self.session_maker = async_sessionmaker(self.engine, expire_on_commit=False)
-        self.config_data: dict = {"custom_commands": []}
+        self.config_data: dict = {
+            "custom_commands": [],
+            "granted_permissions": ["external_connection_access", "calendar_event_creation"],
+        }
+        self.secret_data: dict = {"google_oauth_tokens:google_calendar": '{"access_token":"token"}'}
         self.calendar_payloads: list[dict] = []
 
         self._orig_config_get = config_store.get
         self._orig_config_set = config_store.set
         self._orig_config_delete = config_store.delete
         self._orig_config_all = config_store.all
+        self._orig_secret_get = secret_store.get
         self._orig_db_engine = db_session.engine
         self._orig_db_session_local = db_session.AsyncSessionLocal
         self._orig_orchestrator_session_local = orchestrator_engine.AsyncSessionLocal
@@ -75,6 +81,7 @@ class E2ESmokeTests(unittest.IsolatedAsyncioTestCase):
         config_store.set = lambda key, value: self.config_data.__setitem__(key, value)
         config_store.delete = lambda key: self.config_data.pop(key, None)
         config_store.all = lambda: dict(self.config_data)
+        secret_store.get = lambda key: self.secret_data.get(key)
 
         db_session.engine = self.engine
         db_session.AsyncSessionLocal = self.session_maker
@@ -141,6 +148,7 @@ class E2ESmokeTests(unittest.IsolatedAsyncioTestCase):
         config_store.set = self._orig_config_set
         config_store.delete = self._orig_config_delete
         config_store.all = self._orig_config_all
+        secret_store.get = self._orig_secret_get
         db_session.engine = self._orig_db_engine
         db_session.AsyncSessionLocal = self._orig_db_session_local
         orchestrator_engine.AsyncSessionLocal = self._orig_orchestrator_session_local

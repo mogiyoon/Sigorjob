@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from db.models import TaskTraceEvent
-from db.session import AsyncSessionLocal
+from db import session as db_session
 
 
 SENSITIVE_DETAIL_KEYS = {
@@ -73,6 +73,6 @@ async def record_task_trace(
         await session.commit()
         return
 
-    async with AsyncSessionLocal() as owned_session:
+    async with db_session.AsyncSessionLocal() as owned_session:
         owned_session.add(row)
         await owned_session.commit()

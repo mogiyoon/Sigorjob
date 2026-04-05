@@ -1,0 +1,25 @@
+{
+  "id": "improve-r01-fix-00",
+  "title": "Fix: 오늘 날씨 어때? 우산 가져가야 해?",
+  "goal": "Command '오늘 날씨 어때? 우산 가져가야 해?' failed with: 날씨 조회 요청에 아무런 도구도 사용하지 않고 완전히 실패했으며 사용자에게 어떠한 정보도 제공하지 못했다.. Suggestion: 날씨 API 또는 웹 크롤러 도구를 사용하여 현재 위치 기반 날씨 정보를 조회하고 우산 필요 여부를 안내해야 한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute '오늘 날씨 어때? 우산 가져가야 해?...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r01-fix-00",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

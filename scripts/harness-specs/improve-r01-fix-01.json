@@ -1,0 +1,25 @@
+{
+  "id": "improve-r01-fix-01",
+  "title": "Fix: 요즘 애플 주가 어떻게 돼? 좀 알아봐줘",
+  "goal": "Command '요즘 애플 주가 어떻게 돼? 좀 알아봐줘' failed with: 크롤러를 사용했지만 차단 페이지로 인해 애플 주가 정보를 가져오지 못하고 실패했다.. Suggestion: 차단되지 않는 금융 데이터 API나 대체 주가 조회 도구를 사용하거나 다른 금융 정보 사이트를 시도해야 한다.",
+  "implementation_locations": {
+    "new_files": [],
+    "modified_files": []
+  },
+  "test_requirements": [
+    {
+      "case": "route and execute '요즘 애플 주가 어떻게 돼? 좀 알아봐줘...'",
+      "expected": "status=done, no error"
+    }
+  ],
+  "constraints": [
+    "Do not break existing tests",
+    "Follow AGENTS.md conventions"
+  ],
+  "branch_name": "improve/r01-fix-01",
+  "base_branch": "feat/phase0-ai-capabilities",
+  "max_retries": 2,
+  "codex_model": "",
+  "test_command": "cd backend && python3 -m unittest discover -s tests -v",
+  "test_focus_command": "cd backend && python3 -m unittest discover -s tests -v"
+}

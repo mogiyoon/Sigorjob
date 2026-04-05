@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -101,7 +102,7 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_calendar_helper_preserves_explicit_month_day_in_google_link(self):
         tool = get("calendar_helper")
-        result = await tool.run({"text": "4월 11일 16시에 벚꽃 일정 추가"})
+        result = await tool.run({"text": "4월 11일 16시에 벚꽃 일정 추가", "use_fallback": True})
         self.assertTrue(result["success"])
         calendar = result["data"]["calendar"]
         self.assertEqual(calendar["title"], "벚꽃")
@@ -110,6 +111,53 @@ class PluginRouteTests(unittest.IsolatedAsyncioTestCase):
             calendar["summary"],
             "4월 11일 16시에 **벚꽃** 일정을",
         )
+
+    async def test_calendar_helper_with_oauth_token_creates_event_via_api(self):
+        tool = get("calendar_helper")
+        connector_data = {
+            "action": "open_url",
+            "url": "https://calendar.google.com/event?eid=abc",
+            "event_id": "event-123",
+            "event_link": "https://calendar.google.com/event?eid=abc",
+            "calendar": {"title": "팀 회의"},
+        }
+        connector_result = type(
+            "ConnectorResult",
+            (),
+            {"handled": True, "success": True, "data": connector_data, "error": None},
+        )()
+
+        with patch("plugins.calendar_helper.plugin.oauth.get_stored_tokens", return_value={"access_token": "token"}), patch(
+            "plugins.calendar_helper.plugin.connection_manager.execute_capability",
+            new=AsyncMock(return_value=connector_result),
+        ) as execute_capability:
+            result = await tool.run({"text": "내일 오후 3시 팀 회의 캘린더에 일정 추가해줘"})
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["data"]["event_id"], "event-123")
+        self.assertEqual(result["data"]["event_link"], "https://calendar.google.com/event?eid=abc")
+        execute_capability.assert_awaited_once()
+
+    async def test_calendar_helper_without_oauth_token_returns_needs_connection_result(self):
+        tool = get("calendar_helper")
+
+        with patch("plugins.calendar_helper.plugin.oauth.get_stored_tokens", return_value=None):
+            result = await tool.run({"text": "4월 11일 16시에 벚꽃 일정 추가"})
+
+        self.assertFalse(result["success"])
+        self.assertIn("connection required", result["error"])
+        self.assertIn("calendar.google.com/calendar/render?action=TEMPLATE", result["data"]["fallback_url"])
+
+    async def test_calendar_helper_fallback_request_preserves_existing_link_generation(self):
+        tool = get("calendar_helper")
+
+        with patch("plugins.calendar_helper.plugin.oauth.get_stored_tokens", return_value=None):
+            missing_connection = await tool.run({"text": "4월 11일 16시에 벚꽃 일정 추가"})
+
+        fallback_result = await tool.run({"text": "4월 11일 16시에 벚꽃 일정 추가", "use_fallback": True})
+
+        self.assertTrue(fallback_result["success"])
+        self.assertEqual(fallback_result["data"]["url"], missing_connection["data"]["fallback_url"])
 
     async def test_weather_alert_plugin_route(self):
         task = await intent_router.route("아침 8시에 기상청에서 스크롤한 거 바탕으로 날씨 알림 보내줘")
