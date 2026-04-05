@@ -234,6 +234,17 @@ class E2ESmokeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task.steps[0].tool, "time")
         self.assertEqual(result.status, "done")
 
+    async def test_nearby_pasta_place_search_routes_and_executes_without_error(self):
+        task = await intent_router.route("근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로")
+        result = await orchestrator_engine.run(task, persist=False)
+
+        self.assertEqual(task.steps[0].tool, "reservation_helper")
+        self.assertEqual(task.steps[0].params["query"], "근처 파스타 맛집 주차 가능")
+        self.assertEqual(task.steps[0].params["mode"], "discovery")
+        self.assertEqual(result.status, "done")
+        self.assertIsNone(result.error)
+        self.assertIn("map.naver.com/p/search", result.results[0]["data"]["url"])
+
     async def test_multi_step_task_with_dynamic_params_executes(self):
         async def fake_plan(command: str):
             return {

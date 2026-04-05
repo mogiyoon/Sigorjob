@@ -223,6 +223,21 @@ class AIFirstRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(task.steps), 1)
         self.assertEqual(task.steps[0].condition, "${steps[0].result.success}")
 
+    async def test_place_search_bypasses_ai_when_local_helper_path_exists(self):
+        intent_router.has_api_key = lambda: True
+
+        async def fail_if_called(command: str):
+            raise AssertionError("AI plan should not run for deterministic place search routing")
+
+        intent_router.ai_agent.plan = fail_if_called
+
+        task = await intent_router.route("근처 파스타 맛있는 곳 찾아줘, 주차 가능한 데로")
+
+        self.assertFalse(task.used_ai)
+        self.assertEqual(task.steps[0].tool, "reservation_helper")
+        self.assertEqual(task.steps[0].params["query"], "근처 파스타 맛집 주차 가능")
+        self.assertEqual(task.steps[0].params["mode"], "discovery")
+
     async def test_summarizer_prompt_is_language_agnostic(self):
         captured: dict = {}
         ai_summarizer.has_api_key = lambda: True
