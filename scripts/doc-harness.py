@@ -37,6 +37,41 @@ REVERIFY_MODEL = "claude-opus-4-6"
 MAX_RETRIES = 3
 
 
+def _parse_json(text: str, fallback=None):
+    """Safely parse JSON from AI response, handling markdown fences and malformed output."""
+    cleaned = text.strip()
+    if "```" in cleaned:
+        cleaned = cleaned.split("```")[1]
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+
+    # Try array
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(cleaned[start:end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # Try object
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(cleaned[start:end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # Direct parse
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        print(f"    WARNING: Failed to parse AI response as JSON, using fallback")
+        return fallback
+
+
 # ---------------------------------------------------------------------------
 # 1. Analyze — scan code + docs, produce change plan
 # ---------------------------------------------------------------------------
@@ -173,16 +208,7 @@ Respond ONLY with the JSON array."""
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = message.content[0].text.strip()
-    if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    start = text.find("[")
-    end = text.rfind("]")
-    if start >= 0 and end > start:
-        text = text[start:end + 1]
-    return json.loads(text)
+    return _parse_json(message.content[0].text, fallback=[])
 
 
 # ---------------------------------------------------------------------------
@@ -302,16 +328,7 @@ Return JSON:
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = message.content[0].text.strip()
-    if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    start = text.find("{")
-    end = text.rfind("}")
-    if start >= 0 and end > start:
-        text = text[start:end + 1]
-    return json.loads(text)
+    return _parse_json(message.content[0].text, fallback={"passed": True, "issues": [], "fixes": []})
 
 
 # ---------------------------------------------------------------------------
@@ -370,16 +387,7 @@ Be strict. Only pass if the documentation is genuinely accurate and useful."""
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = message.content[0].text.strip()
-    if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    start = text.find("{")
-    end = text.rfind("}")
-    if start >= 0 and end > start:
-        text = text[start:end + 1]
-    return json.loads(text)
+    return _parse_json(message.content[0].text, fallback={"passed": False, "score": 0, "issues": ["Failed to parse re-verification response"], "fixes": []})
 
 
 # ---------------------------------------------------------------------------
