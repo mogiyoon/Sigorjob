@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Doc harness: AI agents loop to keep documentation in sync with code.
 
+Uses Claude Code CLI (claude -p) for all AI calls — no direct API usage.
+
 Loop:
   1. Analyze — scan code + git diff + existing docs → identify add/update/delete
   2. Execute — apply doc changes
-  3. Verify  — check code↔doc consistency (Sonnet)
-  4. Re-verify — higher model quality check (Opus)
+  3. Verify  — check code↔doc consistency
+  4. Re-verify — higher quality check (--model opus)
   5. → if failed, loop back to step 2 (max 3 retries)
   6. → if passed, show summary and wait for user approval
 
@@ -19,26 +21,50 @@ Usage:
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BACKEND_DIR = PROJECT_ROOT / "backend"
 DOCS_DIR = PROJECT_ROOT / "docs"
 RESULTS_DIR = PROJECT_ROOT / "scripts" / "harness-results"
-sys.path.insert(0, str(BACKEND_DIR))
-
-ANALYZE_MODEL = "claude-sonnet-4-6"
-VERIFY_MODEL = "claude-sonnet-4-6"
-REVERIFY_MODEL = "claude-opus-4-6"
 MAX_RETRIES = 3
 
 
+# ---------------------------------------------------------------------------
+# Claude CLI wrapper
+# ---------------------------------------------------------------------------
+
+def _claude(prompt: str, model: str = "sonnet", timeout: int = 120) -> str:
+    """Call Claude Code CLI and return the response text."""
+    cmd = ["claude", "-p", "--output-format", "text", "--model", model]
+    result = subprocess.run(
+        cmd,
+        input=prompt,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=str(PROJECT_ROOT),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"claude CLI failed (exit {result.returncode}): {result.stderr[:500]}")
+    return result.stdout.strip()
+
+
+def _claude_json(prompt: str, model: str = "sonnet", fallback=None, timeout: int = 120):
+    """Call Claude CLI and parse the response as JSON."""
+    try:
+        text = _claude(prompt, model=model, timeout=timeout)
+    except Exception as e:
+        print(f"    WARNING: Claude CLI call failed: {e}")
+        return fallback
+
+    return _parse_json(text, fallback=fallback)
+
+
 def _parse_json(text: str, fallback=None):
-    """Safely parse JSON from AI response, handling markdown fences and malformed output."""
+    """Safely parse JSON from AI response."""
     cleaned = text.strip()
     if "```" in cleaned:
         cleaned = cleaned.split("```")[1]
@@ -64,11 +90,10 @@ def _parse_json(text: str, fallback=None):
         except json.JSONDecodeError:
             pass
 
-    # Direct parse
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        print(f"    WARNING: Failed to parse AI response as JSON, using fallback")
+        print(f"    WARNING: Failed to parse JSON, using fallback")
         return fallback
 
 
@@ -112,12 +137,10 @@ def scan_existing_docs() -> dict[str, str]:
             rel = f"docs/{lang}/{md_file.name}"
             docs[rel] = md_file.read_text(encoding="utf-8")[:3000]
 
-    # Root docs
     for md_file in sorted(DOCS_DIR.glob("*.md")):
         rel = f"docs/{md_file.name}"
         docs[rel] = md_file.read_text(encoding="utf-8")[:3000]
 
-    # CLAUDE.md and AGENTS.md
     for name in ["CLAUDE.md", "AGENTS.md"]:
         p = PROJECT_ROOT / name
         if p.exists():
@@ -127,17 +150,15 @@ def scan_existing_docs() -> dict[str, str]:
 
 
 def scan_code_structure() -> str:
-    """Scan key code files for module-level docstrings and structure."""
+    """Scan key code files for structure."""
     summary_parts = []
 
-    # Backend modules
     for py_file in sorted((PROJECT_ROOT / "backend").rglob("*.py")):
         if "__pycache__" in str(py_file) or "test" in py_file.name:
             continue
         rel = str(py_file.relative_to(PROJECT_ROOT))
         try:
             content = py_file.read_text(encoding="utf-8")
-            # Extract class/function names
             lines = content.split("\n")
             defs = [l.strip() for l in lines if l.strip().startswith(("class ", "async def ", "def ")) and not l.strip().startswith("def _")]
             if defs:
@@ -145,23 +166,18 @@ def scan_code_structure() -> str:
         except Exception:
             pass
 
-    # Frontend pages
     for tsx_file in sorted((PROJECT_ROOT / "frontend" / "src").rglob("*.tsx")):
-        rel = str(tsx_file.relative_to(PROJECT_ROOT))
-        summary_parts.append(f"{rel}")
+        summary_parts.append(str(tsx_file.relative_to(PROJECT_ROOT)))
 
-    # Scripts
     for script in sorted((PROJECT_ROOT / "scripts").glob("*.py")):
-        rel = str(script.relative_to(PROJECT_ROOT))
-        summary_parts.append(f"{rel}")
+        summary_parts.append(str(script.relative_to(PROJECT_ROOT)))
 
     return "\n".join(summary_parts[:100])
 
 
-def analyze(client, code_changes: str, existing_docs: dict[str, str], code_structure: str, full_audit: bool) -> list[dict]:
+def analyze(code_changes: str, existing_docs: dict[str, str], code_structure: str, full_audit: bool) -> list[dict]:
     """AI analyzes code vs docs and produces a change plan."""
     doc_index = "\n".join(f"- {path}: {content[:150]}..." for path, content in existing_docs.items())
-
     mode = "FULL AUDIT" if full_audit else "INCREMENTAL UPDATE"
 
     prompt = f"""You are a documentation analyst for a software project.
@@ -203,19 +219,14 @@ Rules:
 
 Respond ONLY with the JSON array."""
 
-    message = client.messages.create(
-        model=ANALYZE_MODEL,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return _parse_json(message.content[0].text, fallback=[])
+    return _claude_json(prompt, model="sonnet", fallback=[], timeout=180)
 
 
 # ---------------------------------------------------------------------------
 # 2. Execute — apply doc changes
 # ---------------------------------------------------------------------------
 
-def execute_changes(client, plan: list[dict], existing_docs: dict[str, str], code_structure: str) -> list[dict]:
+def execute_changes(plan: list[dict], existing_docs: dict[str, str], code_structure: str) -> list[dict]:
     """Apply each planned doc change."""
     results = []
 
@@ -234,7 +245,6 @@ def execute_changes(client, plan: list[dict], existing_docs: dict[str, str], cod
                 print(f"    - [SKIP]   {file_path} (not found)")
             continue
 
-        # add or update — generate content
         existing_content = existing_docs.get(file_path, "")
         lang = "Korean" if "/ko/" in file_path else "English"
 
@@ -261,13 +271,7 @@ Rules:
 Output ONLY the markdown content."""
 
         try:
-            message = client.messages.create(
-                model=ANALYZE_MODEL,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            content = message.content[0].text.strip()
-
+            content = _claude(prompt, model="sonnet", timeout=180)
             abs_path.parent.mkdir(parents=True, exist_ok=True)
             abs_path.write_text(content, encoding="utf-8")
             results.append({**item, "status": "applied"})
@@ -280,14 +284,14 @@ Output ONLY the markdown content."""
 
 
 # ---------------------------------------------------------------------------
-# 3. Verify — code↔doc consistency check (Sonnet)
+# 3. Verify — code↔doc consistency check
 # ---------------------------------------------------------------------------
 
-def verify(client, results: list[dict], code_structure: str) -> dict:
-    """Sonnet checks if the applied changes are consistent with code."""
+def verify(results: list[dict], code_structure: str) -> dict:
+    """Check if the applied changes are consistent with code."""
     applied = [r for r in results if r["status"] == "applied"]
     if not applied:
-        return {"passed": True, "issues": [], "reason": "No changes to verify"}
+        return {"passed": True, "issues": [], "fixes": []}
 
     changed_docs = {}
     for r in applied:
@@ -323,23 +327,18 @@ Return JSON:
   ]
 }}"""
 
-    message = client.messages.create(
-        model=VERIFY_MODEL,
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return _parse_json(message.content[0].text, fallback={"passed": True, "issues": [], "fixes": []})
+    return _claude_json(prompt, model="sonnet", fallback={"passed": True, "issues": [], "fixes": []})
 
 
 # ---------------------------------------------------------------------------
-# 4. Re-verify — higher model quality check (Opus)
+# 4. Re-verify — higher quality check (Opus)
 # ---------------------------------------------------------------------------
 
-def reverify(client, results: list[dict], code_structure: str) -> dict:
-    """Opus does final quality/accuracy check."""
+def reverify(results: list[dict], code_structure: str) -> dict:
+    """Opus-level final quality/accuracy check."""
     applied = [r for r in results if r["status"] in ("applied", "deleted")]
     if not applied:
-        return {"passed": True, "issues": [], "reason": "No changes to re-verify"}
+        return {"passed": True, "score": 10, "issues": [], "fixes": []}
 
     changed_docs = {}
     for r in applied:
@@ -382,19 +381,14 @@ Return JSON:
 
 Be strict. Only pass if the documentation is genuinely accurate and useful."""
 
-    message = client.messages.create(
-        model=REVERIFY_MODEL,
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return _parse_json(message.content[0].text, fallback={"passed": False, "score": 0, "issues": ["Failed to parse re-verification response"], "fixes": []})
+    return _claude_json(prompt, model="opus", fallback={"passed": False, "score": 0, "issues": ["Re-verification failed"], "fixes": []}, timeout=300)
 
 
 # ---------------------------------------------------------------------------
 # 5. Apply fixes from verification
 # ---------------------------------------------------------------------------
 
-def apply_fixes(client, fixes: list[dict], code_structure: str) -> list[dict]:
+def apply_fixes(fixes: list[dict], code_structure: str) -> list[dict]:
     """Apply fixes suggested by verifier/re-verifier."""
     results = []
     for fix in fixes:
@@ -426,12 +420,7 @@ Rules:
 Output ONLY the markdown content."""
 
         try:
-            message = client.messages.create(
-                model=ANALYZE_MODEL,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            content = message.content[0].text.strip()
+            content = _claude(prompt, model="sonnet", timeout=180)
             abs_path.write_text(content, encoding="utf-8")
             results.append({**fix, "status": "fixed"})
             print(f"    - [FIX]    {file_path}")
@@ -486,15 +475,11 @@ def print_summary(plan: list[dict], results: list[dict], verification: dict, rev
 
 
 def run(args):
-    from ai.runtime import get_client, has_api_key
-
-    if not has_api_key():
-        print("ERROR: ANTHROPIC_API_KEY is required")
-        sys.exit(1)
-
-    client = get_client()
-    if client is None:
-        print("ERROR: Failed to initialize AI client")
+    # Verify claude CLI is available
+    try:
+        subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        print("ERROR: 'claude' CLI not found. Install Claude Code first.")
         sys.exit(1)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -504,7 +489,7 @@ def run(args):
     code_changes = get_code_changes(args.since, args.files)
     existing_docs = scan_existing_docs()
     code_structure = scan_code_structure()
-    plan = analyze(client, code_changes, existing_docs, code_structure, args.full)
+    plan = analyze(code_changes, existing_docs, code_structure, args.full)
 
     if not plan:
         print("  No documentation changes needed.")
@@ -520,12 +505,15 @@ def run(args):
         return
 
     # Loop: execute → verify → re-verify → fix
+    verification = {}
+    reverification = {}
+    results = []
     for attempt in range(1, MAX_RETRIES + 1):
         print(f"\n  [2/4] Applying changes (attempt {attempt}/{MAX_RETRIES})...")
-        results = execute_changes(client, plan, existing_docs, code_structure)
+        results = execute_changes(plan, existing_docs, code_structure)
 
-        print(f"\n  [3/4] Verifying consistency (Sonnet)...")
-        verification = verify(client, results, code_structure)
+        print(f"\n  [3/4] Verifying consistency...")
+        verification = verify(results, code_structure)
         v_status = "PASS" if verification.get("passed") else "FAIL"
         print(f"    Result: {v_status}")
         if verification.get("issues"):
@@ -533,7 +521,7 @@ def run(args):
                 print(f"    ! {issue}")
 
         print(f"\n  [4/4] Re-verifying quality (Opus)...")
-        reverification = reverify(client, results, code_structure)
+        reverification = reverify(results, code_structure)
         rv_status = "PASS" if reverification.get("passed") else "FAIL"
         rv_score = reverification.get("score", "?")
         print(f"    Result: {rv_status} (score: {rv_score}/10)")
@@ -544,11 +532,10 @@ def run(args):
         if reverification.get("passed"):
             break
 
-        # Apply fixes and retry
         all_fixes = (verification.get("fixes") or []) + (reverification.get("fixes") or [])
         if all_fixes and attempt < MAX_RETRIES:
             print(f"\n  Applying {len(all_fixes)} fix(es) before retry...")
-            apply_fixes(client, all_fixes, code_structure)
+            apply_fixes(all_fixes, code_structure)
         elif attempt < MAX_RETRIES:
             print("  No specific fixes suggested, retrying full execution...")
 
@@ -570,6 +557,7 @@ def run(args):
     print(f"  Report: {report_path}")
 
     # User approval
+    rv_score = reverification.get("score", "?")
     print("\n  변경사항을 승인하시겠습니까?")
     try:
         answer = input("  [y/N] > ").strip().lower()
@@ -577,7 +565,6 @@ def run(args):
         answer = "n"
 
     if answer in ("y", "yes"):
-        # Stage and commit
         changed_files = [r["file"] for r in results if r["status"] in ("applied", "deleted", "fixed")]
         if changed_files:
             subprocess.run(["git", "add"] + changed_files, cwd=str(PROJECT_ROOT))
@@ -589,7 +576,6 @@ def run(args):
         else:
             print("  No files to commit.")
     else:
-        # Rollback
         print("  Rolling back changes...")
         subprocess.run(["git", "checkout", "--", "docs/"], cwd=str(PROJECT_ROOT))
         print("  Rolled back.")

@@ -38,17 +38,42 @@ sys.path.insert(0, str(BACKEND_DIR))
 # 1. User Agent — generates realistic commands
 # ---------------------------------------------------------------------------
 
+def _claude_cli(prompt: str, model: str = "sonnet", timeout: int = 120) -> str:
+    """Call Claude Code CLI (claude -p) and return response text."""
+    cmd = ["claude", "-p", "--output-format", "text", "--model", model]
+    result = subprocess.run(
+        cmd, input=prompt, capture_output=True, text=True,
+        timeout=timeout, cwd=str(PROJECT_ROOT),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"claude CLI failed (exit {result.returncode}): {result.stderr[:300]}")
+    return result.stdout.strip()
+
+
+def _parse_json_safe(text: str, fallback=None):
+    """Safely parse JSON from AI response."""
+    cleaned = text.strip()
+    if "```" in cleaned:
+        cleaned = cleaned.split("```")[1]
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+    for opener, closer in [("[", "]"), ("{", "}")]:
+        start = cleaned.find(opener)
+        end = cleaned.rfind(closer)
+        if start >= 0 and end > start:
+            try:
+                return json.loads(cleaned[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return fallback
+
+
 async def generate_commands(count: int) -> list[dict]:
-    """AI generates commands a real user would ask an AI assistant."""
-    from ai.runtime import get_client, has_api_key
-
-    if not has_api_key():
-        return _fallback_commands(count)
-
-    client = get_client()
-    if client is None:
-        return _fallback_commands(count)
-
+    """AI generates commands via Claude CLI."""
     prompt = f"""You are simulating a real user of an AI personal assistant app.
 Generate exactly {count} commands that a real person would naturally ask.
 
@@ -74,20 +99,15 @@ Respond with a JSON array of objects:
 Only output the JSON array, nothing else."""
 
     try:
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = message.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-        commands = json.loads(text)
+        text = _claude_cli(prompt, model="sonnet", timeout=180)
+        commands = _parse_json_safe(text, fallback=None)
+        if not isinstance(commands, list):
+            return _fallback_commands(count)
         for i, cmd in enumerate(commands):
             cmd["id"] = f"user_{i:03d}"
         return commands[:count]
     except Exception as e:
-        print(f"  WARNING: AI command generation failed ({e}), using fallback")
+        print(f"  WARNING: Claude CLI command generation failed ({e}), using fallback")
         return _fallback_commands(count)
 
 
@@ -456,16 +476,7 @@ async def evaluate_dual(commands: list[dict], results: list[dict]) -> list[dict]
 
 
 async def _evaluate_claude(commands: list[dict], results: list[dict]) -> list[dict]:
-    """Claude API evaluation."""
-    from ai.runtime import get_client, has_api_key
-
-    if not has_api_key():
-        return [_heuristic_eval(cmd, res) for cmd, res in zip(commands, results)]
-
-    client = get_client()
-    if client is None:
-        return [_heuristic_eval(cmd, res) for cmd, res in zip(commands, results)]
-
+    """Claude CLI evaluation (individual per command)."""
     evaluations = []
     for cmd, res in zip(commands, results):
         item = {
@@ -494,18 +505,10 @@ Respond ONLY with a JSON object:
 {{"grade": "...", "reason": "one sentence", "fix_suggestion": "what to fix, or null if good"}}"""
 
         try:
-            msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=256,
-                                         messages=[{"role": "user", "content": prompt}])
-            text = msg.content[0].text.strip()
-            if "```" in text:
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            start = text.find("{")
-            end = text.rfind("}")
-            if start >= 0 and end > start:
-                text = text[start:end+1]
-            ev = json.loads(text)
+            ev = _parse_json_safe(_claude_cli(prompt, model="sonnet"), fallback=None)
+            if not isinstance(ev, dict) or "grade" not in ev:
+                evaluations.append(_heuristic_eval(cmd, res))
+                continue
             ev["id"] = cmd["id"]
             ev["command"] = cmd["command"]
             evaluations.append(ev)
