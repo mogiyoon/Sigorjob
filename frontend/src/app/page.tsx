@@ -45,6 +45,7 @@ interface ApprovalModalState {
 
 interface SetupPromptState {
   taskId: string;
+  taskCommand: string;
   connectionId: string | null;
   connectionName: string;
   setupMessage: string;
@@ -101,6 +102,7 @@ export default function Home() {
   const [backendStartupLogPath, setBackendStartupLogPath] = useState<string | null>(null);
   const [approvalModal, setApprovalModal] = useState<ApprovalModalState | null>(null);
   const [setupPrompt, setSetupPrompt] = useState<SetupPromptState | null>(null);
+  const dismissedSetupTaskIdsRef = useRef<Set<string>>(new Set());
   const [approvalActionLoading, setApprovalActionLoading] = useState<"approve" | "reject" | null>(null);
   const [setupActionLoading, setSetupActionLoading] = useState<"connect" | "fallback" | null>(null);
   const approvalDecisionResolverRef = useRef<((approved: boolean) => void) | null>(null);
@@ -172,16 +174,13 @@ export default function Home() {
       setSchedules(scheduleData.schedules);
       setTasks(taskData.tasks);
       setSetupPrompt((current) => {
-        if (current) {
-          const refreshed = taskData.tasks.find((task) => task.task_id === current.taskId);
-          if (!refreshed || String(refreshed.status) !== "needs_setup") {
-            return null;
-          }
-          return createSetupPrompt(refreshed);
+        if (!current) return null;
+        // Only keep showing if the task is still needs_setup; dismiss otherwise
+        const refreshed = taskData.tasks.find((task) => task.task_id === current.taskId);
+        if (!refreshed || String(refreshed.status) !== "needs_setup") {
+          return null;
         }
-
-        const pendingSetupTask = taskData.tasks.find((task) => String(task.status) === "needs_setup");
-        return pendingSetupTask ? createSetupPrompt(pendingSetupTask) : null;
+        return current;
       });
       if (isLocalUi) {
         await refreshRuntimeStatus();
@@ -233,6 +232,7 @@ export default function Home() {
 
     return {
       taskId: task.task_id,
+      taskCommand: task.command || "",
       connectionId,
       connectionName: matchedConnection?.title || connectionId || t("settings"),
       setupMessage,
@@ -403,6 +403,13 @@ export default function Home() {
     }
   };
 
+  const dismissSetupPrompt = () => {
+    if (setupPrompt) {
+      dismissedSetupTaskIdsRef.current.add(setupPrompt.taskId);
+    }
+    setSetupPrompt(null);
+  };
+
   const handleOpenSetup = async () => {
     if (!setupPrompt) return;
     setSetupActionLoading("connect");
@@ -411,10 +418,9 @@ export default function Home() {
       if (setupPrompt.setupAction === "install_playwright") {
         const result = await installPlaywright();
         if (result.success) {
-          // Playwright installed — retry the original task
           setRetryingTaskId(setupPrompt.taskId);
           const retried = await retryTask(setupPrompt.taskId);
-          setSetupPrompt(null);
+          dismissSetupPrompt();
           upsertTask(retried);
           const final = await pollTaskUntilSettled(retried.task_id);
           upsertTask(final);
@@ -422,16 +428,14 @@ export default function Home() {
           setRetryingTaskId(null);
         } else {
           setSubmitError(result.error || "Playwright 설치에 실패했습니다.");
-          setSetupPrompt(null);
+          dismissSetupPrompt();
         }
         return;
       }
 
       if (setupPrompt.setupAction === "oauth" && setupPrompt.connectionId) {
         const { auth_url } = await authorizeConnection(setupPrompt.connectionId);
-        // Open OAuth popup
         const popup = window.open(auth_url, "_blank", "width=600,height=700");
-        // Listen for the OAuth callback message
         const handleOAuthMessage = async (event: MessageEvent) => {
           if (event.data?.type !== "oauth_callback") return;
           window.removeEventListener("message", handleOAuthMessage);
@@ -439,10 +443,9 @@ export default function Home() {
           if (!code || !state || !setupPrompt.connectionId) return;
           try {
             await callbackConnection(setupPrompt.connectionId, { code, state });
-            // OAuth connected — retry the original task
             setRetryingTaskId(setupPrompt.taskId);
             const retried = await retryTask(setupPrompt.taskId);
-            setSetupPrompt(null);
+            dismissSetupPrompt();
             upsertTask(retried);
             const final = await pollTaskUntilSettled(retried.task_id);
             upsertTask(final);
@@ -450,14 +453,13 @@ export default function Home() {
             setRetryingTaskId(null);
           } catch (err) {
             console.error("OAuth callback failed:", err);
-            setSetupPrompt(null);
+            dismissSetupPrompt();
           }
         };
         window.addEventListener("message", handleOAuthMessage);
-        // Fallback: poll for connection status if popup is blocked
         if (!popup || popup.closed) {
           window.removeEventListener("message", handleOAuthMessage);
-          // Fall back to opening setup page
+          dismissSetupPrompt();
           const query = new URLSearchParams();
           query.set("connection_id", setupPrompt.connectionId);
           query.set("highlight", setupPrompt.connectionId);
@@ -467,7 +469,7 @@ export default function Home() {
         return;
       }
 
-      // Default: redirect to setup page for permission/mcp_install/unknown
+      dismissSetupPrompt();
       const query = new URLSearchParams();
       if (setupPrompt.connectionId) {
         query.set("connection_id", setupPrompt.connectionId);
@@ -477,6 +479,7 @@ export default function Home() {
       router.push(`/setup${query.toString() ? `?${query.toString()}` : ""}`);
     } catch (err) {
       console.error("Setup action failed:", err);
+      dismissSetupPrompt();
     } finally {
       setSetupActionLoading(null);
     }
@@ -488,13 +491,14 @@ export default function Home() {
     setRetryingTaskId(setupPrompt.taskId);
     try {
       const retried = await retryWithFallback(setupPrompt.taskId);
-      setSetupPrompt(null);
+      dismissSetupPrompt();
       upsertTask(retried);
       const final = await pollTaskUntilSettled(retried.task_id);
       upsertTask(final);
       await refreshDashboard();
     } catch (error) {
       console.error(error);
+      dismissSetupPrompt();
     } finally {
       setRetryingTaskId(null);
       setSetupActionLoading(null);
@@ -561,7 +565,7 @@ export default function Home() {
       return left - right;
     })
     .slice(0, 3);
-  const recentActivity = [...tasks].slice(0, 10);
+  const recentActivity = [...tasks].filter((task) => task.status !== "needs_setup").slice(0, 10);
   const scheduleHistory = schedules
     .map((schedule) => ({
       schedule,
@@ -751,9 +755,18 @@ export default function Home() {
             </div>
 
             <div className="mt-5 space-y-4">
+              {setupPrompt.taskCommand && (
+                <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                    {t("user_request", "요청")}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-gray-900">{setupPrompt.taskCommand}</p>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                  {t("connection")}
+                  {t("required_service", "필요한 서비스")}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-900">{setupPrompt.connectionName}</p>
               </div>

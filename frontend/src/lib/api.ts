@@ -107,7 +107,7 @@ export async function localApiFetch(path: string, init?: RequestInit): Promise<R
 export interface TaskResponse {
   task_id: string;
   command?: string | null;
-  status: "pending" | "running" | "done" | "failed" | "needs_clarification" | "approval_required" | "cancelled";
+  status: "pending" | "running" | "done" | "failed" | "needs_clarification" | "approval_required" | "needs_setup" | "cancelled";
   result: { summary: string; results: unknown[]; [key: string]: unknown } | null;
   created_at?: string | null;
   completed_at?: string | null;
@@ -412,7 +412,8 @@ export async function installPlaywright(): Promise<{ success: boolean; error?: s
 export async function getMcpPresets(): Promise<McpPresetItem[]> {
   const res = await localApiFetch("/setup/mcp/presets");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : Array.isArray(data?.presets) ? data.presets : [];
 }
 
 export async function installMcpPreset(

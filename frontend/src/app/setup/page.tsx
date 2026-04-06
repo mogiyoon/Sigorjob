@@ -411,7 +411,7 @@ function getSetupSummary(status: SetupStatusResponse | null, mcpPresets: McpPres
     (connection) => connection.verified || connection.configured || connection.status === "connected"
   );
   const grantedPermissions = (status?.permissions ?? []).filter((permission) => permission.granted);
-  const installedPresets = mcpPresets.filter((preset) => preset.installed);
+  const installedPresets = (Array.isArray(mcpPresets) ? mcpPresets : []).filter((preset) => preset.installed);
   const totalToolItems = 1 + mcpPresets.length;
   const readyToolItems = Number(Boolean(status?.playwright.installed)) + installedPresets.length;
 

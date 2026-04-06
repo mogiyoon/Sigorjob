@@ -270,11 +270,39 @@ async def _execute_steps(task: Task, session=None) -> None:
                     continue
 
             error = result.get("error", "unknown error")
+
+            # Missing param errors → ask clarification instead of failing
+            clarification = _maybe_clarification(step.tool, error, task.command)
+            if clarification is not None:
+                task.status = "needs_clarification"
+                task.summary = clarification
+                task.result_data = {
+                    **task.result_data,
+                    "clarification": {
+                        "original_command": task.command,
+                        "attempt": 1,
+                        "max_attempts": 3,
+                        "history": [],
+                        "question": clarification,
+                    },
+                }
+                if session is not None:
+                    await _log(task.id, "info", f"step {i+1} missing param, asking clarification", session)
+                await record_task_trace(
+                    task.id,
+                    stage="orchestrator",
+                    event="step_needs_clarification",
+                    status=task.status,
+                    detail={"step_index": i + 1, "tool": step.tool, "error": error},
+                    session=session,
+                )
+                return
+
             if session is not None:
                 await _log(task.id, "error", f"step {i+1} failed: {error}", session)
             task.status = "failed"
             task.error = error
-            task.summary = str(error)
+            task.summary = _friendly_error(step.tool, error, task.command)
             await record_task_trace(
                 task.id,
                 stage="orchestrator",
@@ -418,6 +446,80 @@ async def _execute_steps(task: Task, session=None) -> None:
     if "모바일" in task.command.lower() or "mobile" in task.command.lower():
         task.summary = f"{task.summary} 모바일 앱의 작업 목록에서도 확인할 수 있습니다.".strip()
     _maybe_enqueue_mobile_notification(task)
+
+
+_FRIENDLY_ERRORS: dict[str, dict[str, str]] = {
+    "content is required": {
+        "draft_helper": "메시지 내용을 파악하지 못했습니다. 보내실 내용을 좀 더 구체적으로 말씀해주세요.",
+        "_default": "작업에 필요한 내용이 부족합니다. 좀 더 구체적으로 말씀해주세요.",
+    },
+    "text and mode are required": {
+        "communication_helper": "문자/카카오톡 내용과 발송 방법을 파악하지 못했습니다. 보내실 내용을 좀 더 구체적으로 말씀해주세요.",
+        "_default": "작업에 필요한 정보가 부족합니다. 좀 더 구체적으로 말씀해주세요.",
+    },
+    "text is required": {
+        "_default": "처리할 텍스트를 파악하지 못했습니다. 내용을 좀 더 구체적으로 말씀해주세요.",
+    },
+    "query is required": {
+        "reservation_helper": "검색할 장소나 키워드를 파악하지 못했습니다. 좀 더 구체적으로 말씀해주세요.",
+        "_default": "검색어를 파악하지 못했습니다. 좀 더 구체적으로 말씀해주세요.",
+    },
+    "missing text": {
+        "ai_process": "AI가 처리할 내용을 파악하지 못했습니다. 요청을 좀 더 구체적으로 말씀해주세요.",
+        "_default": "처리할 내용이 부족합니다. 좀 더 구체적으로 말씀해주세요.",
+    },
+    "url is required": {
+        "_default": "웹 주소를 찾지 못했습니다. URL을 포함해서 다시 요청해주세요.",
+    },
+}
+
+
+_CLARIFICATION_QUESTIONS: dict[str, dict[str, str]] = {
+    "content is required": {
+        "draft_helper": "어떤 내용으로 보내드릴까요?",
+        "_default": "어떤 내용을 작성해드릴까요?",
+    },
+    "text and mode are required": {
+        "communication_helper": "어떤 내용으로, 어떤 방법(문자/카카오톡)으로 보내드릴까요?",
+    },
+    "text is required": {
+        "_default": "어떤 내용을 처리해드릴까요?",
+    },
+    "query is required": {
+        "reservation_helper": "어떤 장소를 찾아드릴까요?",
+        "_default": "어떤 키워드로 검색해드릴까요?",
+    },
+    "missing text": {
+        "ai_process": "어떤 내용을 도와드릴까요?",
+    },
+}
+
+
+def _maybe_clarification(tool: str, error: str, command: str) -> str | None:
+    """Return a follow-up question if the error is a missing-param type, else None."""
+    error_lower = (error or "").strip().lower()
+    for pattern, questions in _CLARIFICATION_QUESTIONS.items():
+        if pattern in error_lower:
+            return questions.get(tool, questions.get("_default", None))
+    return None
+
+
+def _friendly_error(tool: str, error: str, command: str) -> str:
+    """Convert raw tool errors to user-friendly messages."""
+    error_lower = (error or "").strip().lower()
+    for pattern, messages in _FRIENDLY_ERRORS.items():
+        if pattern in error_lower:
+            return messages.get(tool, messages.get("_default", str(error)))
+
+    # Generic fallback for unknown errors
+    if "not found" in error_lower:
+        return "요청을 처리할 도구를 찾지 못했습니다. 다시 시도해주세요."
+    if "timeout" in error_lower:
+        return "요청 처리 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+    if "connection" in error_lower or "network" in error_lower:
+        return "네트워크 연결에 문제가 있습니다. 인터넷 연결을 확인해주세요."
+
+    return f"요청을 처리하는 중 문제가 발생했습니다. ({error})"
 
 
 def _build_crawler_fallback_step(crawler_step: Step) -> Step | None:

@@ -24,6 +24,7 @@ const statusColor: Record<TaskResponse["status"], string> = {
   failed: "bg-red-100 text-red-700",
   needs_clarification: "bg-indigo-100 text-indigo-700",
   approval_required: "bg-yellow-100 text-yellow-700",
+  needs_setup: "bg-sky-100 text-sky-700",
   cancelled: "bg-gray-200 text-gray-700",
 };
 
@@ -52,6 +53,7 @@ export default function TaskCard({
     failed: t("failed"),
     needs_clarification: t("needs_clarification"),
     approval_required: t("approval_required"),
+    needs_setup: t("needs_setup", "연결 필요"),
     cancelled: t("cancelled"),
   };
 
